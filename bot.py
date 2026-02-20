@@ -26,7 +26,7 @@ logger = logging.getLogger('vk_chat_bot')
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токен VK для чат-бота
 GROUP_ID = 232134257
-VK_TOKEN_CHAT = "vk1.a.rg8v6onM6zdD4DRqdsyQZlyCbt_31_hWaSi1EUxAamHmzL6Z7IPUDUXA1CI7YHCiR3QbegNi5iR7Nvkogm5NjM3gUbZ5vyN35rqBy5BqWhbaFwj0IkfUdxahdMb5dpQGAlfdBiYJU7DVLOdJKVXALJN1TadfOnSEJb0sDKUuEFZeMaWDzsvftsF-ZXsMO_g6X3Ov4qOnpZk0XuAmYlKS6g"
+VK_TOKEN_CHAT = "vk1.a.uZwO99FRdpZ8V4odoEvbtOnJYE__xBWXM5-kw34pQB-MTaoWyHWsVupvzcFR5zOL5l4XwrxRYOr9Wxses28UYGFArF0R4_4mloD_owrfcYZIq-ARng2cTnuadhCHyGgMua-4epsZ47c3gIVPZq3j91eAcsq41I4R5S3cvjl04qkQ2aqdLku1weYsmr6hji7DZRPnmcMGyw-jX3JGRT3IGA"
 
 # Файлы для хранения данных чат-бота
 ADMINS_FILE = 'admins.json'
@@ -88,7 +88,7 @@ def get_user_mention(vk, user_id):
     """Получает упоминание пользователя"""
     try:
         user_info = vk.users.get(user_ids=user_id)
-        if user_info:
+        if user_info and len(user_info) > 0:
             user = user_info[0]
             return f"[id{user_id}|{user['first_name']} {user['last_name']}]"
         return f"[id{user_id}|Пользователь]"
@@ -100,7 +100,7 @@ def get_user_name(vk, user_id):
     """Получает имя пользователя"""
     try:
         user_info = vk.users.get(user_ids=user_id)
-        if user_info:
+        if user_info and len(user_info) > 0:
             user = user_info[0]
             return f"{user['first_name']} {user['last_name']}"
         return f"Пользователь (ID{user_id})"
@@ -110,6 +110,9 @@ def get_user_name(vk, user_id):
 
 def extract_user_id(text, vk=None):
     """Извлекает ID пользователя из текста"""
+    if not text:
+        return None
+    
     # Поиск упоминания [id123|Name]
     mention_match = re.search(r'\[id(\d+)\|', text)
     if mention_match:
@@ -212,9 +215,6 @@ class ChatBot:
         # Кэш для предупреждений о правах
         self.permission_warnings = {}
         
-        # Проверяем, нужно ли выполнить настройку администраторов
-        self.check_setup_admins()
-        
         # Инициализация системы доступа к командам
         self.init_command_access()
         
@@ -222,7 +222,21 @@ class ChatBot:
         global ADMIN_LEVELS
         ADMIN_LEVELS = load_admin_level_names()
         
+        # Добавляем создателя бота как администратора высшего уровня при первом запуске
+        self.setup_initial_admin()
+        
         logger.info("Чат-бот инициализирован")
+    
+    def setup_initial_admin(self):
+        """Устанавливает создателя бота как администратора высшего уровня при первом запуске"""
+        setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
+        if not setup_admins:
+            # ID создателя бота (замените на свой ID)
+            creator_id = 744931693  # ЗАМЕНИТЕ НА СВОЙ ID
+            self.set_admin_level(creator_id, 7)
+            setup_admins.append(str(creator_id))
+            DataManager.save_data(setup_admins, SETUP_ADMINS_FILE)
+            logger.info(f"Установлен уровень 7 для создателя бота (ID: {creator_id})")
     
     def init_command_access(self):
         """Инициализирует настройки доступа к командам"""
@@ -259,7 +273,7 @@ class ChatBot:
             '/надминл': 3,
             '/падминг': 4,
             '/надминг': 4,
-            '/настроитьадмин': 0,
+            '/настроитьадмин': 7,
             '/рук': 6,
             '/срук': 6,
             '/ктоадмин': 0,
@@ -275,14 +289,6 @@ class ChatBot:
             DataManager.save_data(command_access, COMMAND_ACCESS_FILE)
         
         logger.info("Система доступа к командам инициализирована")
-    
-    def check_setup_admins(self):
-        """Проверяет, нужно ли выполнить начальную настройку администраторов"""
-        setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
-        if not setup_admins:
-            logger.info("Начальная настройка администраторов не выполнена. Готов к настройке через команду.")
-        else:
-            logger.info(f"Начальная настройка уже выполнена для {len(setup_admins)} администраторов")
     
     def setup_admin(self, user_id, level):
         """Настройка администратора при запуске бота"""
@@ -360,8 +366,17 @@ class ChatBot:
                 if member.get('is_admin', False):
                     user_id = member.get('member_id')
                     if user_id > 0:  # Исключаем ботов и группы
-                        user_info = self.get_user_permissions_info(user_id, chat_id)
-                        admins_info.append(user_info)
+                        admin_level = self.get_admin_level(user_id)
+                        user_mention = get_user_mention(self.vk, user_id)
+                        
+                        if admin_level > 0:
+                            admins_info.append(f"{user_mention} (Глобальный, уровень {admin_level})")
+                        elif self.is_local_admin(user_id, chat_id):
+                            admins_info.append(f"{user_mention} (Локальный администратор)")
+                        elif self.is_local_moderator(user_id, chat_id):
+                            admins_info.append(f"{user_mention} (Локальный модератор)")
+                        else:
+                            admins_info.append(f"{user_mention} (Администратор беседы)")
             
             return admins_info
         except Exception as e:
@@ -409,24 +424,10 @@ class ChatBot:
         command_access = self.load_command_access()
         return command_access.get(command, 0)
     
-    def check_command_access(self, user_id, command, chat_id=None):
-        """Проверяет доступ пользователя к команде"""
-        required_level = self.get_command_access_level(command)
-        return self.has_permission(user_id, chat_id, required_level)
-    
     # ==================== ЕДИНАЯ СИСТЕМА ПРАВ ====================
     
     def has_permission(self, user_id, chat_id=None, min_level=0):
-        """Проверяет, есть ли у пользователя права
-        
-        Единая система приоритетов:
-        1. Уровень из admin_levels (1-7) - самый высокий приоритет
-        2. Глобальный администратор из admins.json = уровень 3
-        3. Глобальный модератор = уровень 1
-        4. Локальный администратор = уровень 3 (но только в конкретном чате)
-        5. Локальный модератор = уровень 1 (но только в конкретном чате)
-        6. Руководство = уровень 6
-        """
+        """Проверяет, есть ли у пользователя права"""
         # Проверяем уровень администратора (самый высокий приоритет)
         admin_level = self.get_admin_level(user_id)
         if admin_level >= min_level:
@@ -834,7 +835,6 @@ class ChatBot:
         if failed_channels:
             report += f"\n❌ Не удалось отправить в каналы:\n"
             for channel in failed_channels[:5]:
-                # Пытаемся получить название чата
                 try:
                     chat_name = self.get_chat_name(int(channel))
                     report += f"• {chat_name} (ID: {channel})\n"
@@ -1172,7 +1172,7 @@ class ChatBot:
                     if deleted_count > 0:
                         return deleted_count, f"Удалено {deleted_count} сообщений"
                     elif any(status == 0 for status in result.values()):
-                        # Если сообщения не удалены из-за прав, но мы знаем что есть проблема
+                        # Если сообщения не удалены из-за прав
                         return -1, "Нет прав на удаление сообщений"
                 elif result == 1:
                     return len(clean_ids), f"Удалено {len(clean_ids)} сообщений"
@@ -1181,52 +1181,11 @@ class ChatBot:
                 if e.code == 15 or e.code == 924:
                     # Нет прав на удаление
                     logger.warning(f"Нет прав на удаление сообщений в чате {peer_id}")
-                    
-                    # Пытаемся удалить по одному для более детальной информации
-                    deleted_count = 0
-                    failed_count = 0
-                    
-                    for msg_id in clean_ids:
-                        try:
-                            # Пробуем удалить как администратор беседы
-                            self.vk.messages.delete(
-                                message_ids=msg_id,
-                                delete_for_all=1
-                            )
-                            deleted_count += 1
-                            time.sleep(0.1)
-                        except vk_api.exceptions.ApiError as e2:
-                            if e2.code == 15 or e2.code == 924:
-                                # Все равно нет прав
-                                return -1, "Нет прав на удаление сообщений"
-                            else:
-                                failed_count += 1
-                                logger.error(f"Ошибка при удалении сообщения {msg_id}: {e2.code}")
-                    
-                    if deleted_count > 0:
-                        return deleted_count, f"Удалено {deleted_count} сообщений"
-                    else:
-                        return 0, "Не удалось удалить сообщения"
-                        
+                    return -1, "Нет прав на удаление сообщений"
                 elif e.code == 6:
-                    # Слишком много запросов, пробуем удалить по одному
-                    logger.warning("Слишком много запросов, удаляю по одному")
-                    deleted_count = 0
-                    for msg_id in clean_ids:
-                        try:
-                            time.sleep(0.3)
-                            self.vk.messages.delete(
-                                message_ids=msg_id,
-                                delete_for_all=1
-                            )
-                            deleted_count += 1
-                        except:
-                            pass
-                    
-                    if deleted_count > 0:
-                        return deleted_count, f"Удалено {deleted_count} сообщений"
-                    else:
-                        return 0, "Не удалось удалить сообщения"
+                    # Слишком много запросов
+                    logger.warning("Слишком много запросов")
+                    return 0, "Слишком много запросов"
                 else:
                     # Другая ошибка API
                     logger.error(f"Ошибка API при удалении сообщений: {e.code} - {e}")
@@ -1304,6 +1263,7 @@ class ChatBot:
                 'last_message': None,
                 'first_message': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
+            self.save_data(users, USERS_FILE)
         
         return users[user_id_str]
     
@@ -1576,16 +1536,6 @@ class ChatBot:
                 details=f"Кик из чата {peer_id} ({chat_info})"
             )
             
-            # Формируем детальное сообщение для логов
-            log_message = (
-                f"👢 Кик выполнен:\n"
-                f"• Пользователь: {user_mention}\n"
-                f"• Администратор: {admin_mention}\n"
-                f"• Чат: {chat_info} (ID: {peer_id})\n"
-                f"• Причина: {reason if reason else 'не указана'}"
-            )
-            logger.info(log_message)
-            
             return True, chat_info
         except vk_api.exceptions.ApiError as e:
             if e.code == 15:
@@ -1746,12 +1696,10 @@ class ChatBot:
     def get_help_message(self, user_id, chat_id):
         """Получает сообщение помощи в зависимости от прав пользователя"""
         admin_level = self.get_admin_level(user_id)
-        is_moderator_user = self.is_moderator_global(user_id)
         is_local_admin = self.is_local_admin(user_id, chat_id)
         is_local_moderator = self.is_local_moderator(user_id, chat_id)
-        is_leadership = self.is_leadership(user_id)
         
-        if admin_level >= 6 or is_leadership:  # Владелец и выше
+        if admin_level >= 6:  # Владелец и выше
             return (
                 "👑 Команды Владельца:\n"
                 "• /start - подключить беседу к боту\n"
@@ -1770,7 +1718,6 @@ class ChatBot:
                 "• /тишина [время] - включить режим тишины\n"
                 "• /тишина выкл - выключить режим тишины\n"
                 "• /автокик - включить/выключить автокик вышедших пользователей\n"
-                "• /акик @упоминание - кикнуть пользователя из всех бесед\n"
                 "• /чс @пользователь категория дни причина - добавить в ЧС\n"
                 "• /снятьчс @пользователь - убрать из ЧС\n"
                 "• /инфо @пользователь - информация о ЧС\n"
@@ -1783,14 +1730,14 @@ class ChatBot:
                 "• /надминл @пользователь - снять локального администратора\n"
                 "• /падминг @пользователь уровень - назначить глобального администратора\n"
                 "• /надминг @пользователь - снять глобального администратора\n"
-                "• /настроитьадмин @пользователь уровень - настроить администратора (только при запуске)\n"
+                "• /настроитьадмин @пользователь уровень - настроить администратора\n"
                 "• /рук @пользователь - назначить руководство\n"
                 "• /срук @пользователь - снять руководство\n"
                 "• /яадмин - проверить свои права\n"
                 "• /ктоадмин - показать список администраторов в беседе\n"
                 "• /админроли - показать названия уровней администраторов\n"
                 "• /уровенькоманд - показать уровень доступа ко всем командам\n"
-                "• /уровеньназвание уровень новое_название - изменить название уровня администратора\n"
+                "• /уровеньназвание уровень новое_название - изменить название уровня\n"
                 "• /доступкоманда команда уровень - изменить доступ к команде\n"
                 "• /помощь - показать это сообщение\n\n"
                 "💬 Также я реагирую на слова 'бог' и 'бот' в сообщениях"
@@ -1826,11 +1773,10 @@ class ChatBot:
                 "• /надминл @пользователь - снять локального администратора\n"
                 "• /падминг @пользователь уровень - назначить глобального администратора\n"
                 "• /надминг @пользователь - снять глобального администратора\n"
-                "• /настроитьадмин @пользователь уровень - настроить администратора (только при запуске)\n"
                 "• /ктоадмин - показать список администраторов в беседе\n"
                 "• /админроли - показать названия уровней администраторов\n"
                 "• /уровенькоманд - показать уровень доступа ко всем командам\n"
-                "• /уровеньназвание уровень новое_название - изменить название уровня администратора\n"
+                "• /уровеньназвание уровень новое_название - изменить название уровня\n"
                 "• /доступкоманда команда уровень - изменить доступ к команде\n"
                 "• /яадмин - проверить свои права\n"
                 "• /помощь - показать это сообщение\n\n"
@@ -1860,7 +1806,6 @@ class ChatBot:
                 "• /инфо @пользователь - информация о ЧС\n"
                 "• /падминл @пользователь - назначить локального администратора\n"
                 "• /надминл @пользователь - снять локального администратора\n"
-                "• /настроитьадмин @пользователь уровень - настроить администратора (только при запуске)\n"
                 "• /ктоадмин - показать список администраторов в беседе\n"
                 "• /админроли - показать названия уровней администраторов\n"
                 "• /уровенькоманд - показать уровень доступа ко всем командам\n"
@@ -1889,7 +1834,7 @@ class ChatBot:
                 "• /помощь - показать это сообщение\n\n"
                 "💬 Также я реагирую на слова 'бог' и 'бот' в сообщениях"
             )
-        elif admin_level >= 1 or is_moderator_user:  # Модератор
+        elif admin_level >= 1:  # Модератор
             return (
                 "🛡️ Команды Модератора:\n"
                 "• /кик @упоминание - кикнуть пользователя\n"
@@ -2055,7 +2000,7 @@ class ChatBot:
         elif admin_level >= 1:
             info += f"🛡️ Модератор (уровень {admin_level})!\n"
         
-        # Дополнительные права (старые системы)
+        # Дополнительные права
         additional_rights = []
         
         if self.is_leadership(user_id):
@@ -2127,7 +2072,6 @@ class ChatBot:
         peer_id = msg['peer_id']
         from_id = msg['from_id']
         text = msg['text']
-        chat_id_str = str(peer_id)
         message_id = msg.get('id')
         
         # Проверяем, что сообщение из беседы, а не из ЛС
@@ -2135,7 +2079,7 @@ class ChatBot:
             logger.info(f"[CHAT] Игнорирую личное сообщение от ID{from_id}")
             return
         
-        normalized_text = text.lower()
+        normalized_text = text.lower().strip()
         
         # Проверяем, не в муте ли пользователь
         if self.check_mute_and_delete(peer_id, from_id, message_id):
@@ -2239,8 +2183,12 @@ class ChatBot:
                     else:
                         logger.error(f"Не удалось выполнить автокик для {left_id}: {chat_name}")
         
-        # НОВАЯ КОМАНДА: КТО АДМИН
-        elif normalized_text.startswith('/ктоадмин'):
+        # Пропускаем пустые сообщения
+        if not text:
+            return
+        
+        # Обработка команд
+        if normalized_text.startswith('/ктоадмин'):
             admins_info = self.get_admins_in_chat(peer_id)
             
             if not admins_info:
@@ -2252,16 +2200,7 @@ class ChatBot:
             else:
                 message = "👑 Администраторы в беседе:\n\n"
                 for i, admin_info in enumerate(admins_info, 1):
-                    # Извлекаем упоминание из информации
-                    lines = admin_info.split('\n')
-                    mention = lines[0].replace("🔍 Информация о правах ", "").replace(":", "")
-                    
-                    # Определяем тип администратора
-                    admin_type = "Локальный"
-                    if "Глобальный администратор" in admin_info or "Уровень администратора" in admin_info:
-                        admin_type = "Глобальный"
-                    
-                    message += f"{i}. {mention} - {admin_type}\n"
+                    message += f"{i}. {admin_info}\n"
                 
                 self.vk.messages.send(
                     peer_id=peer_id,
@@ -2269,7 +2208,6 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # НОВАЯ КОМАНДА: АДМИНРОЛИ
         elif normalized_text.startswith('/админроли'):
             roles_info = self.get_admin_roles_info()
             self.vk.messages.send(
@@ -2278,7 +2216,6 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # НОВАЯ КОМАНДА: УРОВЕНЬКОМАНД
         elif normalized_text.startswith('/уровенькоманд'):
             access_info = self.get_command_access_info()
             self.vk.messages.send(
@@ -2287,7 +2224,6 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # НОВАЯ КОМАНДА: ИЗМЕНЕНИЕ НАЗВАНИЯ УРОВНЯ АДМИНИСТРАТОРА
         elif normalized_text.startswith('/уровеньназвание'):
             if not self.check_permission(from_id, peer_id, 4):  # Только Главный Админ и выше
                 return
@@ -2332,7 +2268,6 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # НОВАЯ КОМАНДА: ИЗМЕНЕНИЕ ДОСТУПА К КОМАНДЕ
         elif normalized_text.startswith('/доступкоманда'):
             if not self.check_permission(from_id, peer_id, 4):  # Только Главный Админ и выше
                 return
@@ -2382,7 +2317,6 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда помощи
         elif normalized_text == '/помощь':
             help_message = self.get_help_message(from_id, peer_id)
             self.vk.messages.send(
@@ -2391,9 +2325,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда START - подключение беседы
         elif normalized_text == '/start':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/start')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2406,7 +2338,7 @@ class ChatBot:
             if self.add_active_chat(peer_id):
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message="✅ Вы успешно подключили беседу. Баны, муты и прочий функционал теперь активен!",
+                    message="✅ Вы успешно подключили беседу. Функционал теперь активен!",
                     random_id=get_random_id()
                 )
             else:
@@ -2416,9 +2348,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда STOP - отключение беседы
         elif normalized_text == '/stop':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/stop')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2431,7 +2361,7 @@ class ChatBot:
             if self.remove_active_chat(peer_id):
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message="✅ Беседа отключена. Функционал бота больше не активен.",
+                    message="✅ Беседа отключена.",
                     random_id=get_random_id()
                 )
             else:
@@ -2441,9 +2371,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда ПРИВЯЗАТЬ - привязка беседы к категории
         elif normalized_text == '/привязать':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/привязать')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2469,9 +2397,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда ОТВЯЗАТЬ - отвязка беседы от категории
         elif normalized_text == '/отвязать':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/отвязать')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2494,19 +2420,12 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда удаления сообщения
         elif normalized_text == '/удалить':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/удалить')
             if not self.has_permission(from_id, peer_id, required_level):
-                # Пытаемся удалить команду, если есть права
-                if message_id:
-                    self.delete_messages(peer_id, message_id)
-                
-                error_msg = f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!"
-                sent_msg = self.vk.messages.send(
+                self.vk.messages.send(
                     peer_id=peer_id,
-                    message=error_msg,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
@@ -2523,22 +2442,19 @@ class ChatBot:
                         result2, message2 = self.delete_messages(peer_id, message_id)
                     
                     if result1 == -1:
-                        # Нет прав на удаление
-                        error_msg = self.vk.messages.send(
+                        self.vk.messages.send(
                             peer_id=peer_id,
                             message="❌ Недостаточно прав для удаления сообщений! Убедитесь, что бот является администратором беседы.",
                             random_id=get_random_id()
                         )
                     elif result1 > 0:
-                        # Успешно удалили
-                        success_msg = self.vk.messages.send(
+                        self.vk.messages.send(
                             peer_id=peer_id,
                             message=f"🗑️ Сообщение удалено!",
                             random_id=get_random_id()
                         )
                     else:
-                        # Не удалось удалить
-                        fail_msg = self.vk.messages.send(
+                        self.vk.messages.send(
                             peer_id=peer_id,
                             message=f"❌ Не удалось удалить сообщение",
                             random_id=get_random_id()
@@ -2556,18 +2472,12 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда очистки чата
         elif normalized_text.startswith('/очистить'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/очистить')
             if not self.has_permission(from_id, peer_id, required_level):
-                if message_id:
-                    self.delete_messages(peer_id, message_id)
-                
-                error_msg = f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!"
-                sent_msg = self.vk.messages.send(
+                self.vk.messages.send(
                     peer_id=peer_id,
-                    message=error_msg,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
@@ -2603,9 +2513,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда режима тишины
         elif normalized_text.startswith('/тишина'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/тишина')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2661,27 +2569,22 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда мута
         elif normalized_text.startswith('/мут'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/мут')
             if not self.has_permission(from_id, peer_id, required_level):
-                if message_id:
-                    self.delete_messages(peer_id, message_id)
-                
-                error_msg = f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!"
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=error_msg,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
             
+            target_id = None
+            duration = 60
+            reason = ""
+            
             if 'reply_message' in msg:
                 target_id = msg['reply_message']['from_id']
-                duration = 60
-                reason = ""
-                
                 parts = text.split()
                 if len(parts) > 1:
                     try:
@@ -2690,9 +2593,28 @@ class ChatBot:
                             reason = ' '.join(parts[2:])
                     except ValueError:
                         reason = ' '.join(parts[1:])
-                
+            else:
+                target_id = extract_user_id(text, self.vk)
+                if target_id:
+                    parts = text.split()
+                    found_duration = False
+                    for i, part in enumerate(parts):
+                        if part.isdigit():
+                            duration = int(part)
+                            found_duration = True
+                            if i + 1 < len(parts):
+                                reason = ' '.join(parts[i+1:])
+                            break
+                    
+                    if not found_duration:
+                        for i, part in enumerate(parts):
+                            if 'id' in part or 'vk.com' in part or 'http' in part or '[' in part:
+                                if i + 1 < len(parts):
+                                    reason = ' '.join(parts[i+1:])
+                                break
+            
+            if target_id:
                 target_mention = get_user_mention(self.vk, target_id)
-                
                 unmute_time = self.mute_user(target_id, duration, from_id, reason)
                 time_str = unmute_time.strftime("%Y-%m-%d %H:%M:%S")
                 
@@ -2706,70 +2628,30 @@ class ChatBot:
                     random_id=get_random_id()
                 )
             else:
-                target_id = extract_user_id(text, self.vk)
-                if target_id:
-                    target_mention = get_user_mention(self.vk, target_id)
-                    
-                    # Парсим команду /мут @user 30 спам
-                    parts = text.split()
-                    duration = 60
-                    reason = "без указания причины"
-                    
-                    # Ищем цифры для длительности
-                    found_duration = False
-                    for i, part in enumerate(parts):
-                        if part.isdigit():
-                            duration = int(part)
-                            found_duration = True
-                            if i + 1 < len(parts):
-                                reason = ' '.join(parts[i+1:])
-                            break
-                    
-                    # Если не нашли цифр, значит причина - весь текст после упоминания
-                    if not found_duration:
-                        for i, part in enumerate(parts):
-                            if 'id' in part or 'vk.com' in part or 'http' in part or '[' in part:
-                                if i + 1 < len(parts):
-                                    reason = ' '.join(parts[i+1:])
-                                break
-                    
-                    unmute_time = self.mute_user(target_id, duration, from_id, reason)
-                    time_str = unmute_time.strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    # Удаляем команду
-                    if message_id:
-                        self.delete_messages(peer_id, message_id)
-                    
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=f"🔇 Пользователь {target_mention} замьючен до {time_str}!\n📌 Причина: {reason}",
-                        random_id=get_random_id()
-                    )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /мут @упоминание [время] [причина]",
-                        random_id=get_random_id()
-                    )
-        
-        # Команда размута
-        elif normalized_text.startswith('/размут'):
-            # Проверяем доступ к команде
-            required_level = self.get_command_access_level('/размут')
-            if not self.has_permission(from_id, peer_id, required_level):
-                if message_id:
-                    self.delete_messages(peer_id, message_id)
-                
-                error_msg = f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!"
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=error_msg,
+                    message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /мут @упоминание [время] [причина]",
+                    random_id=get_random_id()
+                )
+        
+        elif normalized_text.startswith('/размут'):
+            required_level = self.get_command_access_level('/размут')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
             
+            target_id = None
+            
             if 'reply_message' in msg:
                 target_id = msg['reply_message']['from_id']
+            else:
+                target_id = extract_user_id(text, self.vk)
+            
+            if target_id:
                 target_mention = get_user_mention(self.vk, target_id)
                 
                 if self.unmute_user(target_id, from_id):
@@ -2785,32 +2667,13 @@ class ChatBot:
                         random_id=get_random_id()
                     )
             else:
-                target_id = extract_user_id(text, self.vk)
-                if target_id:
-                    target_mention = get_user_mention(self.vk, target_id)
-                    
-                    if self.unmute_user(target_id, from_id):
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=f"🔊 Пользователь {target_mention} размучен!",
-                            random_id=get_random_id()
-                        )
-                    else:
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=f"ℹ️ Пользователь {target_mention} не в муте!",
-                            random_id=get_random_id()
-                        )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /размут @упоминание",
-                        random_id=get_random_id()
-                    )
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /размут @упоминание",
+                    random_id=get_random_id()
+                )
         
-        # Команда автокика
         elif normalized_text == '/автокик':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/автокик')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2829,9 +2692,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда акик (кик из всех чатов)
         elif normalized_text.startswith('/акик'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/акик')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2896,9 +2757,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда кика
         elif normalized_text.startswith('/кик'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/кик')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -2908,18 +2767,27 @@ class ChatBot:
                 )
                 return
             
+            target_id = None
+            reason = ""
+            
             if 'reply_message' in msg:
                 target_id = msg['reply_message']['from_id']
-                reason = ""
-                
                 parts = text.split()
                 if len(parts) > 1:
                     reason = ' '.join(parts[1:])
-                
+            else:
+                target_id = extract_user_id(text, self.vk)
+                if target_id:
+                    parts = text.split()
+                    for i, part in enumerate(parts):
+                        if part.isdigit() or 'id' in part or 'vk.com' in part or 'http' in part:
+                            if i + 1 < len(parts):
+                                reason = ' '.join(parts[i+1:])
+                            break
+            
+            if target_id:
                 target_mention = get_user_mention(self.vk, target_id)
                 admin_mention = get_user_mention(self.vk, from_id)
-                
-                # Получаем название текущего чата
                 current_chat_name = self.get_chat_name(peer_id)
                 
                 success, chat_name = self.kick_from_chat(peer_id, target_id, from_id, reason)
@@ -2940,125 +2808,47 @@ class ChatBot:
                         random_id=get_random_id()
                     )
                 else:
-                    # Проверяем, есть ли пользователь в чате
-                    try:
-                        members = self.vk.messages.getConversationMembers(peer_id=peer_id)
-                        user_in_chat = any(member.get('member_id') == target_id for member in members['items'])
-                        
-                        if not user_in_chat:
-                            message = f"ℹ️ Пользователь {target_mention} уже не находится в этом чате."
-                        else:
-                            message = (
-                                f"❌ НЕ УДАЛОСЬ КИКНУТЬ\n\n"
-                                f"• Пользователь: {target_mention}\n"
-                                f"• Администратор: {admin_mention}\n"
-                                f"• Причина ошибки: {chat_name}\n\n"
-                                f"⚠️ Убедитесь, что бот является администратором беседы!"
-                            )
-                        
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=message,
-                            random_id=get_random_id()
-                        )
-                    except Exception as e:
-                        logger.error(f"Ошибка проверки участника чата: {e}")
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=f"⚠️ Ошибка при попытке кика пользователя {target_mention}: {chat_name}",
-                            random_id=get_random_id()
-                        )
+                    self.vk.messages.send(
+                        peer_id=peer_id,
+                        message=f"⚠️ Ошибка при попытке кика пользователя {target_mention}: {chat_name}",
+                        random_id=get_random_id()
+                    )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /кик @упоминание [причина]",
+                    random_id=get_random_id()
+                )
+        
+        elif normalized_text.startswith('/варн'):
+            required_level = self.get_command_access_level('/варн')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            target_id = None
+            reason = ""
+            
+            if 'reply_message' in msg:
+                target_id = msg['reply_message']['from_id']
+                parts = text.split()
+                if len(parts) > 1:
+                    reason = ' '.join(parts[1:])
             else:
                 target_id = extract_user_id(text, self.vk)
                 if target_id:
                     parts = text.split()
-                    reason = ""
                     for i, part in enumerate(parts):
                         if part.isdigit() or 'id' in part or 'vk.com' in part or 'http' in part:
                             if i + 1 < len(parts):
                                 reason = ' '.join(parts[i+1:])
                             break
-                    
-                    target_mention = get_user_mention(self.vk, target_id)
-                    admin_mention = get_user_mention(self.vk, from_id)
-                    current_chat_name = self.get_chat_name(peer_id)
-                    
-                    success, chat_name = self.kick_from_chat(peer_id, target_id, from_id, reason)
-                    
-                    if success:
-                        message = (
-                            f"👢 КИК ВЫПОЛНЕН\n\n"
-                            f"• Пользователь: {target_mention}\n"
-                            f"• Администратор: {admin_mention}\n"
-                            f"• Чат: {current_chat_name}\n"
-                            f"• Причина: {reason if reason else 'не указана'}\n\n"
-                            f"⚠️ Пользователь удален из беседы."
-                        )
-                        
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=message,
-                            random_id=get_random_id()
-                        )
-                    else:
-                        try:
-                            members = self.vk.messages.getConversationMembers(peer_id=peer_id)
-                            user_in_chat = any(member.get('member_id') == target_id for member in members['items'])
-                            
-                            if not user_in_chat:
-                                message = f"ℹ️ Пользователь {target_mention} не находится в этом чате."
-                            else:
-                                message = (
-                                    f"❌ НЕ УДАЛОСЬ КИКНУТЬ\n\n"
-                                    f"• Пользователь: {target_mention}\n"
-                                    f"• Администратор: {admin_mention}\n"
-                                    f"• Причина ошибки: {chat_name}\n\n"
-                                    f"⚠️ Убедитесь, что бот является администратором беседы!"
-                                )
-                            
-                            self.vk.messages.send(
-                                peer_id=peer_id,
-                                message=message,
-                                random_id=get_random_id()
-                            )
-                        except Exception as e:
-                            logger.error(f"Ошибка проверки участника чата: {e}")
-                            self.vk.messages.send(
-                                peer_id=peer_id,
-                                message=f"⚠️ Ошибка при попытке кика пользователя {target_mention}: {chat_name}",
-                                random_id=get_random_id()
-                            )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /кик @упоминание [причина]",
-                        random_id=get_random_id()
-                    )
-        
-        # Команда варна
-        elif normalized_text.startswith('/варн'):
-            # Проверяем доступ к команде
-            required_level = self.get_command_access_level('/варн')
-            if not self.has_permission(from_id, peer_id, required_level):
-                if message_id:
-                    self.delete_messages(peer_id, message_id)
-                
-                error_msg = f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!"
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message=error_msg,
-                    random_id=get_random_id()
-                )
-                return
             
-            if 'reply_message' in msg:
-                target_id = msg['reply_message']['from_id']
-                reason = ""
-                
-                parts = text.split()
-                if len(parts) > 1:
-                    reason = ' '.join(parts[1:])
-                
+            if target_id:
                 target_mention = get_user_mention(self.vk, target_id)
                 
                 warn_count = self.add_warn(target_id, from_id, reason)
@@ -3083,64 +2873,30 @@ class ChatBot:
                     random_id=get_random_id()
                 )
             else:
-                target_id = extract_user_id(text, self.vk)
-                if target_id:
-                    target_mention = get_user_mention(self.vk, target_id)
-                    
-                    reason = "без указания причины"
-                    parts = text.split()
-                    for i, part in enumerate(parts):
-                        if part.isdigit() or 'id' in part or 'vk.com' in part or 'http' in part:
-                            if i + 1 < len(parts):
-                                reason = ' '.join(parts[i+1:])
-                            break
-                    
-                    warn_count = self.add_warn(target_id, from_id, reason)
-                    
-                    message = (
-                        f"⚠️ Пользователю {target_mention} выдано предупреждение!\n"
-                        f"📌 Причина: {reason}\n"
-                        f"🔥 Всего предупреждений: {warn_count}/3"
-                    )
-                    
-                    if warn_count >= 3:
-                        self.add_to_blacklist(target_id, from_id, "3 предупреждения", 7, ["все"])
-                        success, chat_name = self.kick_from_chat(peer_id, target_id, from_id, "3 предупреждения")
-                        
-                        message += "\n⛔ Пользователь добавлен в ЧС на 7 дней за 3 предупреждения!"
-                        if success:
-                            message += "\n👢 Пользователь кикнут из беседы"
-                    
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=message,
-                        random_id=get_random_id()
-                    )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /варн @упоминание [причина]",
-                        random_id=get_random_id()
-                    )
-        
-        # Команда разварна
-        elif normalized_text.startswith('/разварн'):
-            # Проверяем доступ к команде
-            required_level = self.get_command_access_level('/разварн')
-            if not self.has_permission(from_id, peer_id, required_level):
-                if message_id:
-                    self.delete_messages(peer_id, message_id)
-                
-                error_msg = f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!"
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=error_msg,
+                    message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /варн @упоминание [причина]",
+                    random_id=get_random_id()
+                )
+        
+        elif normalized_text.startswith('/разварн'):
+            required_level = self.get_command_access_level('/разварн')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
             
+            target_id = None
+            
             if 'reply_message' in msg:
                 target_id = msg['reply_message']['from_id']
+            else:
+                target_id = extract_user_id(text, self.vk)
+            
+            if target_id:
                 target_mention = get_user_mention(self.vk, target_id)
                 
                 if self.remove_warn(target_id, from_id):
@@ -3158,34 +2914,13 @@ class ChatBot:
                         random_id=get_random_id()
                     )
             else:
-                target_id = extract_user_id(text, self.vk)
-                if target_id:
-                    target_mention = get_user_mention(self.vk, target_id)
-                    
-                    if self.remove_warn(target_id, from_id):
-                        stats = self.get_user_stats(target_id)
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=f"✅ С пользователя {target_mention} снято предупреждение!\n"
-                                    f"⚠️ Всего предупреждений: {stats['warns']}/3",
-                            random_id=get_random_id()
-                        )
-                    else:
-                        self.vk.messages.send(
-                            peer_id=peer_id,
-                            message=f"ℹ️ У пользователя {target_mention} нет предупреждений!",
-                            random_id=get_random_id()
-                        )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /разварн @упоминание",
-                        random_id=get_random_id()
-                    )
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Укажите пользователя (упоминание, ссылка или ID) или ответьте на его сообщение: /разварн @упоминание",
+                    random_id=get_random_id()
+                )
         
-        # Команда статы
         elif normalized_text.startswith('/стата'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/стата')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3212,9 +2947,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда проверки прав
         elif normalized_text == '/яадмин':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/яадмин')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3231,9 +2964,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда назначения локального администратора
         elif normalized_text.startswith('/падминл'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/падминл')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3266,9 +2997,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда снятия локального администратора
         elif normalized_text.startswith('/надминл'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/надминл')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3301,9 +3030,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда назначения глобального администратора (только уровень 4 и выше)
         elif normalized_text.startswith('/падминг'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/падминг')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3346,7 +3073,7 @@ class ChatBot:
             
             # Проверяем, может ли администратор назначить такой уровень
             admin_level = self.get_admin_level(from_id)
-            if level >= admin_level:
+            if level >= admin_level and admin_level < 7:
                 self.vk.messages.send(
                     peer_id=peer_id,
                     message="❌ Вы не можете назначить уровень равный или выше вашего!",
@@ -3369,9 +3096,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда снятия глобального администратора (только уровень 4 и выше)
         elif normalized_text.startswith('/надминг'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/надминг')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3402,7 +3127,7 @@ class ChatBot:
                 )
                 return
             
-            if admin_level <= target_level:
+            if admin_level <= target_level and admin_level < 7:
                 self.vk.messages.send(
                     peer_id=peer_id,
                     message="❌ Вы не можете снять администратора равного или выше вашего уровня!",
@@ -3425,24 +3150,12 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда настройки администратора при запуске (только для начальной настройки)
         elif normalized_text.startswith('/настроитьадмин'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/настроитьадмин')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
                     peer_id=peer_id,
                     message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
-                    random_id=get_random_id()
-                )
-                return
-            
-            # Проверяем, была ли уже выполнена начальная настройка
-            setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
-            if len(setup_admins) >= 3:  # Максимум 3 администратора можно настроить
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message="❌ Начальная настройка администраторов уже завершена!",
                     random_id=get_random_id()
                 )
                 return
@@ -3480,23 +3193,20 @@ class ChatBot:
             
             target_mention = get_user_mention(self.vk, target_id)
             
-            if self.setup_admin(target_id, level):
+            if self.set_admin_level(target_id, level):
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=f"✅ Пользователь {target_mention} настроен как {self.get_admin_level_name(level)} (уровень {level})!\n"
-                            f"📊 Настроено администраторов: {len(setup_admins) + 1}/3",
+                    message=f"✅ Пользователь {target_mention} назначен {self.get_admin_level_name(level)} (уровень {level})!",
                     random_id=get_random_id()
                 )
             else:
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=f"ℹ️ Не удалось настроить пользователя {target_mention}!",
+                    message=f"ℹ️ Не удалось назначить пользователя {target_mention}!",
                     random_id=get_random_id()
                 )
         
-        # Команда назначения руководства (только уровень 6 и выше)
         elif normalized_text.startswith('/рук'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/рук')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3529,9 +3239,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда снятия руководства (только уровень 6 и выше)
         elif normalized_text.startswith('/срук'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/срук')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3564,9 +3272,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда новостей
         elif normalized_text.startswith('/новости'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/новости')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3637,9 +3343,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда информации о новостях
         elif normalized_text == '/инфоновости':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/инфоновости')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3656,59 +3360,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда добавления канала новостей
-        elif normalized_text == '/добавитьканал':
-            # Проверяем доступ к команде
-            required_level = self.get_command_access_level('/добавитьканал')
-            if not self.has_permission(from_id, peer_id, required_level):
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
-                    random_id=get_random_id()
-                )
-                return
-            
-            if self.add_news_channel(peer_id, from_id):
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message="✅ Этот чат добавлен в каналы новостей!",
-                    random_id=get_random_id()
-                )
-            else:
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message="ℹ️ Этот чат уже в списке каналов новостей!",
-                    random_id=get_random_id()
-                )
-        
-        # Команда удаления канала новостей
-        elif normalized_text == '/удалитьканал':
-            # Проверяем доступ к команде
-            required_level = self.get_command_access_level('/удалитьканал')
-            if not self.has_permission(from_id, peer_id, required_level):
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
-                    random_id=get_random_id()
-                )
-                return
-            
-            if self.remove_news_channel(peer_id, from_id):
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message="✅ Этот чат удален из каналов новостей!",
-                    random_id=get_random_id()
-                )
-            else:
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message="ℹ️ Этот чат не был в списке каналов новостей!",
-                    random_id=get_random_id()
-                )
-        
-        # Команда просмотра каналов новостей
         elif normalized_text == '/каналыновостей':
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/каналыновостей')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3744,9 +3396,53 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Команда добавления в ЧС (только для чатов категории "га")
+        elif normalized_text == '/добавитьканал':
+            required_level = self.get_command_access_level('/добавитьканал')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            if self.add_news_channel(peer_id, from_id):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="✅ Этот чат добавлен в каналы новостей!",
+                    random_id=get_random_id()
+                )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="ℹ️ Этот чат уже в списке каналов новостей!",
+                    random_id=get_random_id()
+                )
+        
+        elif normalized_text == '/удалитьканал':
+            required_level = self.get_command_access_level('/удалитьканал')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            if self.remove_news_channel(peer_id, from_id):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="✅ Этот чат удален из каналов новостей!",
+                    random_id=get_random_id()
+                )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="ℹ️ Этот чат не был в списке каналов новостей!",
+                    random_id=get_random_id()
+                )
+        
         elif normalized_text.startswith('/чс'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/чс')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3858,9 +3554,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда снятия ЧС (только для чатов категории "га")
         elif normalized_text.startswith('/снятьчс'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/снятьчс')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3901,9 +3595,7 @@ class ChatBot:
                     random_id=get_random_id()
                 )
         
-        # Команда информации о пользователе (только для чатов категории "га")
         elif normalized_text.startswith('/инфо'):
-            # Проверяем доступ к команде
             required_level = self.get_command_access_level('/инфо')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3947,8 +3639,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Реакция на слово "бог" в любом регистре
-        elif 'бог' in text.lower():
+        elif 'бог' in normalized_text:
             user_mention = get_user_mention(self.vk, from_id)
             self.vk.messages.send(
                 peer_id=peer_id,
@@ -3956,8 +3647,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Реакция на слово "бот" в любом регистре
-        elif 'бот' in text.lower():
+        elif 'бот' in normalized_text:
             user_mention = get_user_mention(self.vk, from_id)
             self.vk.messages.send(
                 peer_id=peer_id,
@@ -3965,7 +3655,6 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Реакция на неизвестные команды
         elif text.startswith(('!', '/', 'І', 'і')):
             self.vk.messages.send(
                 peer_id=peer_id,
@@ -4003,7 +3692,7 @@ class ChatBot:
                 
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=f"{admin_mention}, вы присоединили беседу \"{peer_id}\" к категории для {category_names.get(category, category)}.",
+                    message=f"{admin_mention}, вы присоединили беседу к категории для {category_names.get(category, category)}.",
                     random_id=get_random_id()
                 )
             
