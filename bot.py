@@ -16,6 +16,29 @@ import os
 import sys
 import requests
 
+import sys
+import logging
+
+# Настройка логирования для Render
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger('vk_bot_debug')
+
+# Сразу пишем в логи
+logger.info("="*50)
+logger.info("БОТ ЗАПУСКАЕТСЯ...")
+logger.info("="*50)
+
+# Проверяем токены (первые 10 символов)
+logger.info(f"VK_TOKEN_ATTESTATION: {VK_TOKEN_ATTESTATION[:10]}...")
+logger.info(f"VK_TOKEN_CHAT: {VK_TOKEN_CHAT[:10]}...")
+
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
     level=logging.INFO,
