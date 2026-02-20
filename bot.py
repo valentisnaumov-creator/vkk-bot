@@ -5483,27 +5483,66 @@ def main():
 from flask import Flask
 import threading
 import time
+import sys
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logger = logging.getLogger('render')
+
+# Проверяем, что токены определены
+try:
+    logger.info(f"Токен аттестации: {VK_TOKEN_ATTESTATION[:10]}...")
+    logger.info(f"Токен чата: {VK_TOKEN_CHAT[:10]}...")
+except NameError as e:
+    logger.error(f"❌ ОШИБКА: Токены не определены! {e}")
+    logger.error("Проверьте начало файла bot.py - там должны быть VK_TOKEN_ATTESTATION и VK_TOKEN_CHAT")
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Бот работает! 🚀"
+    return """
+    <html>
+        <head><title>VK Bot</title></head>
+        <body>
+            <h1>✅ Бот работает!</h1>
+            <p>Flask сервер запущен</p>
+        </body>
+    </html>
+    """
+
+@app.route('/health')
+def health():
+    return {"status": "ok", "time": time.time()}
 
 def run_flask():
-    # Запускаем Flask на порту 10000 (который требует Render)
-    app.run(host='0.0.0.0', port=10000)
+    try:
+        logger.info("🚀 Запуск Flask на порту 10000...")
+        app.run(host='0.0.0.0', port=10000, debug=False)
+    except Exception as e:
+        logger.error(f"❌ Ошибка Flask: {e}")
 
-# Запускаем бота в отдельном потоке
 def run_bot():
-    # Небольшая задержка, чтобы Flask успел запуститься
-    time.sleep(2)
-    main()
+    try:
+        logger.info("🤖 Запуск VK бота...")
+        main()
+    except Exception as e:
+        logger.error(f"❌ Ошибка бота: {e}")
+        time.sleep(5)
+        run_bot()
 
 if __name__ == '__main__':
-    # Запускаем Flask в отдельном потоке
+    logger.info("="*50)
+    logger.info("ЗАПУСК БОТА НА RENDER")
+    logger.info("="*50)
+    
+    # Запускаем Flask
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
+    logger.info("✅ Flask поток запущен")
     
-    # Запускаем бота в основном потоке
+    time.sleep(3)
+    
+    # Запускаем бота
     run_bot()
