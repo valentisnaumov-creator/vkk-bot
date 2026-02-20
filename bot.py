@@ -16,7 +16,7 @@ from flask import Flask
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
-    level=logging.DEBUG,  # Включим DEBUG для отладки
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         RotatingFileHandler('bot_system.log', maxBytes=10*1024*1024, backupCount=5),
@@ -204,34 +204,24 @@ class ChatBot:
         self.vk_session = vk_api.VkApi(token=token)
         self.vk = self.vk_session.get_api()
         
-        # Проверяем подключение к VK
         try:
             group_info = self.vk.groups.getById(group_id=GROUP_ID)
             logger.info(f"✅ Успешное подключение к группе: {group_info[0]['name']} (ID: {GROUP_ID})")
         except Exception as e:
             logger.error(f"❌ Ошибка подключения к VK: {e}")
-            logger.error(f"Тип ошибки: {type(e)}")
-            logger.error(f"Детали: {e}")
         
         logger.info("🔄 Инициализация LongPoll...")
         self.longpoll = VkBotLongPoll(self.vk_session, group_id=GROUP_ID)
         logger.info("✅ LongPoll инициализирован")
         
-        # Инициализация файлов данных
         logger.info("🔄 Инициализация файлов данных...")
         DataManager.init_data_files()
         logger.info("✅ Файлы данных инициализированы")
         
-        # Кэш для предупреждений о правах
         self.permission_warnings = {}
-        
-        # Проверяем, нужно ли выполнить настройку администраторов
         self.check_setup_admins()
-        
-        # Инициализация системы доступа к командам
         self.init_command_access()
         
-        # Загружаем названия уровней
         global ADMIN_LEVELS
         ADMIN_LEVELS = load_admin_level_names()
         
@@ -311,7 +301,6 @@ class ChatBot:
         return True
     
     # ==================== СИСТЕМА ПРАВ ====================
-    
     def load_admin_levels(self):
         return DataManager.load_data(ADMIN_LEVELS_FILE, dict)
     
@@ -445,7 +434,6 @@ class ChatBot:
         return True
     
     # ==================== КОМПАТИБИЛЬНОСТЬ СО СТАРЫМИ СИСТЕМАМИ ====================
-    
     def load_admins(self):
         admins = DataManager.load_data(ADMINS_FILE, dict)
         if isinstance(admins, list):
@@ -1101,8 +1089,6 @@ class ChatBot:
                     logger.warning(f"Нет прав на удаление сообщений в чате {peer_id}")
                     
                     deleted_count = 0
-                    failed_count = 0
-                    
                     for msg_id in clean_ids:
                         try:
                             self.vk.messages.delete(
@@ -1114,9 +1100,6 @@ class ChatBot:
                         except vk_api.exceptions.ApiError as e2:
                             if e2.code == 15 or e2.code == 924:
                                 return -1, "Нет прав на удаление сообщений"
-                            else:
-                                failed_count += 1
-                                logger.error(f"Ошибка при удалении сообщения {msg_id}: {e2.code}")
                     
                     if deleted_count > 0:
                         return deleted_count, f"Удалено {deleted_count} сообщений"
@@ -2048,300 +2031,335 @@ class ChatBot:
                     logger.error(f"❌ Ошибка обработки callback: {e}")
     
     def process_message(self, event):
-    msg = event.object.message
-    peer_id = msg['peer_id']
-    from_id = msg['from_id']
-    text = msg['text']
-    message_id = msg.get('id')
-    
-    logger.info(f"📨 Сообщение от {from_id} в чате {peer_id}: {text}")
-    
-    # Проверяем, что сообщение из беседы, а не из ЛС
-    if peer_id == from_id:
-        logger.info(f"[CHAT] Игнорирую личное сообщение от ID{from_id}")
-        return
-    
-    normalized_text = text.lower()
-    
-    # Проверяем, не в муте ли пользователь
-    if self.check_mute_and_delete(peer_id, from_id, message_id):
-        return
-    
-    # Проверяем режим тишины
-    if self.is_silence_mode(peer_id) and not text.startswith('/'):
-        if not self.has_permission(from_id, peer_id) and not self.is_chat_admin(peer_id, from_id):
-            try:
-                if message_id:
-                    result, message = self.delete_messages(peer_id, message_id)
-                    if result > 0:
-                        logger.info(f"Сообщение от {from_id} удалено в режиме тишины")
-                    elif result == -1:
-                        if peer_id not in self.permission_warnings:
-                            self.vk.messages.send(
-                                peer_id=peer_id,
-                                message="⚠️ Внимание: для работы режима тишины боту нужны права на удаление сообщений!",
-                                random_id=get_random_id()
-                            )
-                            self.permission_warnings[peer_id] = True
-            except Exception as e:
-                logger.error(f"⚠️ Не удалось удалить сообщение в режиме тишины: {e}")
-            return
-    
-    # Обновляем статистику сообщений
-    self.update_user_stats(from_id, add_message=True)
-    
-    # Обработка системных действий (приглашения, выходы и т.д.)
-    if 'action' in msg:
-        action = msg['action']
-        action_type = action.get('type')
+        msg = event.object.message
+        peer_id = msg['peer_id']
+        from_id = msg['from_id']
+        text = msg['text']
+        message_id = msg.get('id')
         
-        if action_type == 'chat_invite_user':
-            invited_id = action.get('member_id')
-            chat_category = self.get_chat_category(peer_id)
-            if self.is_in_blacklist(invited_id, chat_category):
+        logger.info(f"📨 Сообщение от {from_id} в чате {peer_id}: {text}")
+        
+        # Проверяем, что сообщение из беседы, а не из ЛС
+        if peer_id == from_id:
+            logger.info(f"[CHAT] Игнорирую личное сообщение от ID{from_id}")
+            return
+        
+        normalized_text = text.lower()
+        
+        # Проверяем, не в муте ли пользователь
+        if self.check_mute_and_delete(peer_id, from_id, message_id):
+            logger.info(f"Пользователь {from_id} в муте, сообщение удалено")
+            return
+        
+        # Проверяем режим тишины
+        if self.is_silence_mode(peer_id) and not text.startswith('/'):
+            if not self.has_permission(from_id, peer_id) and not self.is_chat_admin(peer_id, from_id):
                 try:
                     if message_id:
-                        self.delete_messages(peer_id, message_id)
-                except:
-                    pass
+                        result, message = self.delete_messages(peer_id, message_id)
+                        if result > 0:
+                            logger.info(f"Сообщение от {from_id} удалено в режиме тишины")
+                        elif result == -1:
+                            if peer_id not in self.permission_warnings:
+                                self.vk.messages.send(
+                                    peer_id=peer_id,
+                                    message="⚠️ Внимание: для работы режима тишины боту нужны права на удаление сообщений!",
+                                    random_id=get_random_id()
+                                )
+                                self.permission_warnings[peer_id] = True
+                except Exception as e:
+                    logger.error(f"⚠️ Не удалось удалить сообщение в режиме тишины: {e}")
+                return
+        
+        # Обновляем статистику сообщений
+        self.update_user_stats(from_id, add_message=True)
+        
+        # Обработка системных действий (приглашения, выходы и т.д.)
+        if 'action' in msg:
+            action = msg['action']
+            action_type = action.get('type')
+            
+            if action_type == 'chat_invite_user':
+                invited_id = action.get('member_id')
+                chat_category = self.get_chat_category(peer_id)
+                if self.is_in_blacklist(invited_id, chat_category):
+                    try:
+                        if message_id:
+                            self.delete_messages(peer_id, message_id)
+                    except:
+                        pass
+                    
+                    success, chat_name = self.kick_from_chat(peer_id, invited_id, from_id, "Нахождение в ЧС")
+                    if success:
+                        invited_mention = get_user_mention(self.vk, invited_id)
+                        self.vk.messages.send(
+                            peer_id=peer_id,
+                            message=f"⛔ Пользователь {invited_mention} находится в ЧС и был кикнут!",
+                            random_id=get_random_id()
+                        )
+                    else:
+                        self.vk.messages.send(
+                            peer_id=peer_id,
+                            message=f"⚠️ Не удалось кикнуть пользователя из ЧС: {chat_name}",
+                            random_id=get_random_id()
+                        )
+                return
+            
+            elif action_type == 'chat_invite_user_by_link':
+                joined_id = from_id
+                chat_category = self.get_chat_category(peer_id)
+                if self.is_in_blacklist(joined_id, chat_category):
+                    try:
+                        if message_id:
+                            self.delete_messages(peer_id, message_id)
+                    except:
+                        pass
+                    
+                    success, chat_name = self.kick_from_chat(peer_id, joined_id, from_id, "Нахождение в ЧС")
+                    if success:
+                        joined_mention = get_user_mention(self.vk, joined_id)
+                        self.vk.messages.send(
+                            peer_id=peer_id,
+                            message=f"⛔ Пользователь {joined_mention} находится в ЧС и был кикнут!",
+                            random_id=get_random_id()
+                        )
+                    else:
+                        self.vk.messages.send(
+                            peer_id=peer_id,
+                            message=f"⚠️ Не удалось кикнуть пользователя из ЧС: {chat_name}",
+                            random_id=get_random_id()
+                        )
+                return
+            
+            elif action_type in ['chat_kick_user', 'chat_leave']:
+                left_id = action.get('member_id', from_id)
+                if self.is_autokick_enabled(peer_id) and left_id > 0:
+                    success, chat_name = self.kick_from_chat(peer_id, left_id, from_id, "Автокик за выход")
+                    if success:
+                        left_mention = get_user_mention(self.vk, left_id)
+                        self.vk.messages.send(
+                            peer_id=peer_id,
+                            message=f"👢 Пользователь {left_mention} был кикнут (автокик)!",
+                            random_id=get_random_id()
+                        )
+                    else:
+                        logger.error(f"Не удалось выполнить автокик для {left_id}: {chat_name}")
+                return
+        
+        # ========== ОБРАБОТКА КОМАНД ==========
+        
+        # Команда помощи
+        if normalized_text == '/помощь':
+            help_message = self.get_help_message(from_id, peer_id)
+            self.vk.messages.send(
+                peer_id=peer_id,
+                message=help_message,
+                random_id=get_random_id()
+            )
+            logger.info(f"✅ Отправлена помощь пользователю {from_id}")
+        
+        # Команда START
+        elif normalized_text == '/start':
+            required_level = self.get_command_access_level('/start')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            if self.add_active_chat(peer_id):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="✅ Вы успешно подключили беседу. Баны, муты и прочий функционал теперь активен!",
+                    random_id=get_random_id()
+                )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="ℹ️ Беседа уже подключена!",
+                    random_id=get_random_id()
+                )
+        
+        # Команда STOP
+        elif normalized_text == '/stop':
+            required_level = self.get_command_access_level('/stop')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            if self.remove_active_chat(peer_id):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="✅ Беседа отключена. Функционал бота больше не активен.",
+                    random_id=get_random_id()
+                )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="ℹ️ Беседа не была подключена!",
+                    random_id=get_random_id()
+                )
+        
+        # Команда проверки прав
+        elif normalized_text == '/яадмин':
+            permissions_info = self.get_user_permissions_info(from_id, peer_id)
+            self.vk.messages.send(
+                peer_id=peer_id,
+                message=permissions_info,
+                random_id=get_random_id()
+            )
+        
+        # Команда ктоадмин
+        elif normalized_text.startswith('/ктоадмин'):
+            admins_info = self.get_admins_in_chat(peer_id)
+            
+            if not admins_info:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="ℹ️ В этой беседе нет администраторов с правами бота.",
+                    random_id=get_random_id()
+                )
+            else:
+                message = "👑 Администраторы в беседе:\n\n"
+                for i, admin_info in enumerate(admins_info, 1):
+                    lines = admin_info.split('\n')
+                    mention = lines[0].replace("🔍 Информация о правах ", "").replace(":", "")
+                    admin_type = "Локальный"
+                    if "Глобальный администратор" in admin_info or "Уровень администратора" in admin_info:
+                        admin_type = "Глобальный"
+                    message += f"{i}. {mention} - {admin_type}\n"
                 
-                success, chat_name = self.kick_from_chat(peer_id, invited_id, from_id, "Нахождение в ЧС")
-                if success:
-                    invited_mention = get_user_mention(self.vk, invited_id)
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=f"⛔ Пользователь {invited_mention} находится в ЧС и был кикнут!",
-                        random_id=get_random_id()
-                    )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=f"⚠️ Не удалось кикнуть пользователя из ЧС: {chat_name}",
-                        random_id=get_random_id()
-                    )
-            return
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=message,
+                    random_id=get_random_id()
+                )
         
-        elif action_type == 'chat_invite_user_by_link':
-            joined_id = from_id
-            chat_category = self.get_chat_category(peer_id)
-            if self.is_in_blacklist(joined_id, chat_category):
-                try:
-                    if message_id:
-                        self.delete_messages(peer_id, message_id)
-                except:
-                    pass
-                
-                success, chat_name = self.kick_from_chat(peer_id, joined_id, from_id, "Нахождение в ЧС")
-                if success:
-                    joined_mention = get_user_mention(self.vk, joined_id)
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=f"⛔ Пользователь {joined_mention} находится в ЧС и был кикнут!",
-                        random_id=get_random_id()
-                    )
-                else:
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=f"⚠️ Не удалось кикнуть пользователя из ЧС: {chat_name}",
-                        random_id=get_random_id()
-                    )
-            return
-        
-        elif action_type in ['chat_kick_user', 'chat_leave']:
-            left_id = action.get('member_id', from_id)
-            if self.is_autokick_enabled(peer_id) and left_id > 0:
-                success, chat_name = self.kick_from_chat(peer_id, left_id, from_id, "Автокик за выход")
-                if success:
-                    left_mention = get_user_mention(self.vk, left_id)
-                    self.vk.messages.send(
-                        peer_id=peer_id,
-                        message=f"👢 Пользователь {left_mention} был кикнут (автокик)!",
-                        random_id=get_random_id()
-                    )
-                else:
-                    logger.error(f"Не удалось выполнить автокик для {left_id}: {chat_name}")
-            return
-    
-    # ========== ОБРАБОТКА КОМАНД ==========
-    
-    # Команда помощи
-    if normalized_text == '/помощь':
-        help_message = self.get_help_message(from_id, peer_id)
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message=help_message,
-            random_id=get_random_id()
-        )
-        logger.info(f"✅ Отправлена помощь пользователю {from_id}")
-    
-    # Команда START
-    elif normalized_text == '/start':
-        required_level = self.get_command_access_level('/start')
-        if not self.has_permission(from_id, peer_id, required_level):
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
-                random_id=get_random_id()
-            )
-            return
-        
-        if self.add_active_chat(peer_id):
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message="✅ Вы успешно подключили беседу. Баны, муты и прочий функционал теперь активен!",
-                random_id=get_random_id()
-            )
-        else:
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message="ℹ️ Беседа уже подключена!",
-                random_id=get_random_id()
-            )
-    
-    # Команда STOP
-    elif normalized_text == '/stop':
-        required_level = self.get_command_access_level('/stop')
-        if not self.has_permission(from_id, peer_id, required_level):
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
-                random_id=get_random_id()
-            )
-            return
-        
-        if self.remove_active_chat(peer_id):
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message="✅ Беседа отключена. Функционал бота больше не активен.",
-                random_id=get_random_id()
-            )
-        else:
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message="ℹ️ Беседа не была подключена!",
-                random_id=get_random_id()
-            )
-    
-    # Команда проверки прав
-    elif normalized_text == '/яадмин':
-        permissions_info = self.get_user_permissions_info(from_id, peer_id)
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message=permissions_info,
-            random_id=get_random_id()
-        )
-    
-    # Команда ктоадмин
-    elif normalized_text.startswith('/ктоадмин'):
-        admins_info = self.get_admins_in_chat(peer_id)
-        
-        if not admins_info:
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message="ℹ️ В этой беседе нет администраторов с правами бота.",
-                random_id=get_random_id()
-            )
-        else:
-            message = "👑 Администраторы в беседе:\n\n"
-            for i, admin_info in enumerate(admins_info, 1):
-                lines = admin_info.split('\n')
-                mention = lines[0].replace("🔍 Информация о правах ", "").replace(":", "")
-                admin_type = "Локальный"
-                if "Глобальный администратор" in admin_info or "Уровень администратора" in admin_info:
-                    admin_type = "Глобальный"
-                message += f"{i}. {mention} - {admin_type}\n"
+        # Команда статы
+        elif normalized_text.startswith('/стата'):
+            required_level = self.get_command_access_level('/стата')
+            if not self.has_permission(from_id, peer_id, required_level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            target_id = from_id
+            parts = text.split()
+            if len(parts) > 1:
+                target_id = extract_user_id(text, self.vk)
+                if not target_id:
+                    target_id = from_id
+            
+            stats = self.get_user_stats(target_id)
+            stats_message = self.format_stats(stats, target_id)
             
             self.vk.messages.send(
                 peer_id=peer_id,
-                message=message,
+                message=stats_message,
                 random_id=get_random_id()
             )
-    
-    # Команда статы
-    elif normalized_text.startswith('/стата'):
-        required_level = self.get_command_access_level('/стата')
-        if not self.has_permission(from_id, peer_id, required_level):
+        
+        # Команда админроли
+        elif normalized_text == '/админроли':
+            roles_info = self.get_admin_roles_info()
             self.vk.messages.send(
                 peer_id=peer_id,
-                message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                message=roles_info,
                 random_id=get_random_id()
             )
-            return
         
-        target_id = from_id
-        parts = text.split()
-        if len(parts) > 1:
-            target_id = extract_user_id(text, self.vk)
-            if not target_id:
-                target_id = from_id
-        
-        stats = self.get_user_stats(target_id)
-        stats_message = self.format_stats(stats, target_id)
-        
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message=stats_message,
-            random_id=get_random_id()
-        )
-    
-    # Команда кик
-    elif normalized_text.startswith('/кик'):
-        required_level = self.get_command_access_level('/кик')
-        if not self.has_permission(from_id, peer_id, required_level):
+        # Команда уровенькоманд
+        elif normalized_text == '/уровенькоманд':
+            access_info = self.get_command_access_info()
             self.vk.messages.send(
                 peer_id=peer_id,
-                message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                message=access_info,
                 random_id=get_random_id()
             )
-            return
         
-        # Здесь должен быть полный код обработки /кик
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message="⚠️ Команда /кик временно отключена для отладки",
-            random_id=get_random_id()
-        )
-    
-    # Реакция на слово "бот"
-    elif 'бот' in text.lower():
-        user_mention = get_user_mention(self.vk, from_id)
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message=f"{user_mention}, я здесь! Чем могу помочь?",
-            random_id=get_random_id()
-        )
-    
-    # Реакция на "бог"
-    elif 'бог' in text.lower():
-        user_mention = get_user_mention(self.vk, from_id)
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message=f"{user_mention}, всё в его руках!",
-            random_id=get_random_id()
-        )
-    
-    # Неизвестная команда
-    elif text.startswith(('/', '!', 'І', 'і')):
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message="❌ Неизвестная команда. Используйте /помощь для списка команд.",
-            random_id=get_random_id()
-        )
-    
-    # Отладочный ответ на любое другое сообщение (убрать потом)
-    else:
-        self.vk.messages.send(
-            peer_id=peer_id,
-            message=f"✅ Сообщение получено. Для списка команд напишите /помощь",
-            random_id=get_random_id()
-        )
-    
-    logger.info(f"✅ Обработка сообщения завершена")
+        # Реакция на слово "бот"
+        elif 'бот' in text.lower():
+            user_mention = get_user_mention(self.vk, from_id)
+            self.vk.messages.send(
+                peer_id=peer_id,
+                message=f"{user_mention}, я здесь! Чем могу помочь?",
+                random_id=get_random_id()
+            )
+        
+        # Реакция на "бог"
+        elif 'бог' in text.lower():
+            user_mention = get_user_mention(self.vk, from_id)
+            self.vk.messages.send(
+                peer_id=peer_id,
+                message=f"{user_mention}, всё в его руках!",
+                random_id=get_random_id()
+            )
+        
+        # Неизвестная команда
+        elif text.startswith(('/', '!', 'І', 'і')):
+            self.vk.messages.send(
+                peer_id=peer_id,
+                message="❌ Неизвестная команда. Используйте /помощь для списка команд.",
+                random_id=get_random_id()
+            )
     
     def process_callback(self, event):
-        # Заглушка для callback
-        logger.debug(f"Callback получен: {event}")
-        pass
+        """Обрабатывает callback-события от кнопок"""
+        try:
+            payload = event.object.payload
+            
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            
+            user_id = event.object.user_id
+            peer_id = event.object.peer_id
+            
+            if 'category' in payload:
+                required_level = self.get_command_access_level('/привязать')
+                if not self.has_permission(user_id, peer_id, required_level):
+                    return
+                
+                category = payload['category']
+                category_names = {
+                    'администрация': 'администрации',
+                    'лидеры': 'лидеров',
+                    'заместители': 'заместителей',
+                    'га': 'ГА/ЗГА'
+                }
+                
+                self.set_chat_category(peer_id, category)
+                admin_mention = get_user_mention(self.vk, user_id)
+                
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"{admin_mention}, вы присоединили беседу к категории для {category_names.get(category, category)}.",
+                    random_id=get_random_id()
+                )
+            
+            elif 'cancel' in payload:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Привязка отменена.",
+                    random_id=get_random_id()
+                )
+            
+            self.vk.messages.sendMessageEventAnswer(
+                event_id=event.object.event_id,
+                user_id=user_id,
+                peer_id=peer_id,
+            )
+            
+        except Exception as e:
+            logger.error(f"⚠️ Ошибка обработки callback: {e}")
 
 # ==================== FLASK ДЛЯ RENDER ====================
 app = Flask(__name__)
@@ -2354,7 +2372,7 @@ def home():
         <body>
             <h1>✅ Бот работает!</h1>
             <p>Flask сервер запущен на Render</p>
-            <p>Версия: отладочная</p>
+            <p>Версия: полная с командами</p>
         </body>
     </html>
     """
@@ -2378,6 +2396,8 @@ def run_bot():
     except Exception as e:
         logger.error(f"❌ Ошибка бота: {e}")
         logger.error("Бот упал, перезапуск через 10 секунд...")
+        import traceback
+        traceback.print_exc()
         time.sleep(10)
         run_bot()
 
