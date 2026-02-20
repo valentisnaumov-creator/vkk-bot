@@ -30,8 +30,8 @@ logger = logging.getLogger('vk_bot_system')
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токены VK
 GROUP_ID = 232134257
-VK_TOKEN_ATTESTATION = "vk1.a.v_vPinKJCgsvUFSXXK_i8foA9jj5hjhYooKAmr2o3sdT3HQQG3FFU0x9mVfv_IHXG9EijilStDXNCeAEiwxl9RWYTB4-MMGPpFjBbF_wdA5U2MepMaiPq-ugoxY94Bv3e-wo-KmwirYLQNR-9ygvs3jh9dLAuZJ9imXBj4ReVGwmO6V4c_dIGHoi6J1hy7M3_UyedpDIt4iPY8OMZ-mmrw"
-VK_TOKEN_CHAT = "vk1.a.rg8v6onM6zdD4DRqdsyQZlyCbt_31_hWaSi1EUxAamHmzL6Z7IPUDUXA1CI7YHCiR3QbegNi5iR7Nvkogm5NjM3gUbZ5vyN35rqBy5BqWhbaFwj0IkfUdxahdMb5dpQGAlfdBiYJU7DVLOdJKVXALJN1TadfOnSEJb0sDKUuEFZeMaWDzsvftsF-ZXsMO_g6X3Ov4qOnpZk0XuAmYlKS6g"
+VK_TOKEN_ATTESTATION = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
+VK_TOKEN_CHAT = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
 
 # Настройки Google Таблицы для аттестации
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
