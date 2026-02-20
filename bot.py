@@ -35,7 +35,7 @@ logger = logging.getLogger('vk_bot_system')
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токены VK - ВАЖНО: УБЕДИТЕСЬ ЧТО ОНИ ПРАВИЛЬНЫЕ!
 GROUP_ID = 232134257
-VK_TOKEN_ATTESTATION = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
+# VK_TOKEN_ATTESTATION = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
 VK_TOKEN_CHAT = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
 
 # Проверяем токены при запуске
@@ -230,17 +230,17 @@ class AttestationBot:
         self.longpoll = VkBotLongPoll(self.vk_session, GROUP_ID)
         
         # Подключение к Google Таблицам
-        try:
-            client = gspread.authorize(CREDS)
-            sheet = client.open(SPREADSHEET_NAME)
-            self.questions_sheet = sheet.worksheet('Вопросы')
-            self.users_sheet = sheet.worksheet('Пользователи')
-            self.codes_sheet = sheet.worksheet('Коды')
-            self.admins_sheet = sheet.worksheet('Администраторы')
-            logger.info("Подключение к Google Таблицам успешно")
-        except Exception as e:
-            logger.error(f"Ошибка подключения к Google Таблицам: {e}")
-            raise
+      #   try:
+           #  client = gspread.authorize(CREDS)
+          #   sheet = client.open(SPREADSHEET_NAME)
+            # self.questions_sheet = sheet.worksheet('Вопросы')
+          #   self.users_sheet = sheet.worksheet('Пользователи')
+           #  self.codes_sheet = sheet.worksheet('Коды')
+          #   self.admins_sheet = sheet.worksheet('Администраторы')
+          #   logger.info("Подключение к Google Таблицам успешно")
+      #   except Exception as e:
+    #         logger.error(f"Ошибка подключения к Google Таблицам: {e}")
+            # raise
         
         # Состояния пользователей
         self.user_states = {}
