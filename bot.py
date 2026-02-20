@@ -26,7 +26,7 @@ logger = logging.getLogger('vk_chat_bot')
 # ==================== КОНФИГУРАЦИЯ ====================
 # Токен VK для чат-бота
 GROUP_ID = 232134257
-VK_TOKEN_CHAT = "vk1.a.uZwO99FRdpZ8V4odoEvbtOnJYE__xBWXM5-kw34pQB-MTaoWyHWsVupvzcFR5zOL5l4XwrxRYOr9Wxses28UYGFArF0R4_4mloD_owrfcYZIq-ARng2cTnuadhCHyGgMua-4epsZ47c3gIVPZq3j91eAcsq41I4R5S3cvjl04qkQ2aqdLku1weYsmr6hji7DZRPnmcMGyw-jX3JGRT3IGA"
+VK_TOKEN_CHAT = "vk1.a.rg8v6onM6zdD4DRqdsyQZlyCbt_31_hWaSi1EUxAamHmzL6Z7IPUDUXA1CI7YHCiR3QbegNi5iR7Nvkogm5NjM3gUbZ5vyN35rqBy5BqWhbaFwj0IkfUdxahdMb5dpQGAlfdBiYJU7DVLOdJKVXALJN1TadfOnSEJb0sDKUuEFZeMaWDzsvftsF-ZXsMO_g6X3Ov4qOnpZk0XuAmYlKS6g"
 
 # Файлы для хранения данных чат-бота
 ADMINS_FILE = 'admins.json'
@@ -215,6 +215,10 @@ class ChatBot:
         # Кэш для предупреждений о правах
         self.permission_warnings = {}
         
+        # Кэш для обработанных сообщений (чтобы избежать дублирования)
+        self.processed_messages = set()
+        self.message_cache_time = 60  # секунд
+        
         # Инициализация системы доступа к командам
         self.init_command_access()
         
@@ -232,7 +236,7 @@ class ChatBot:
         setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
         if not setup_admins:
             # ID создателя бота (замените на свой ID)
-            creator_id = 744931693  # ЗАМЕНИТЕ НА СВОЙ ID
+            creator_id = 613142617  # ВАШ ID
             self.set_admin_level(creator_id, 7)
             setup_admins.append(str(creator_id))
             DataManager.save_data(setup_admins, SETUP_ADMINS_FILE)
@@ -370,7 +374,7 @@ class ChatBot:
                         user_mention = get_user_mention(self.vk, user_id)
                         
                         if admin_level > 0:
-                            admins_info.append(f"{user_mention} (Глобальный, уровень {admin_level})")
+                            admins_info.append(f"{user_mention} (Глобальный, уровень {admin_level} - {self.get_admin_level_name(admin_level)})")
                         elif self.is_local_admin(user_id, chat_id):
                             admins_info.append(f"{user_mention} (Локальный администратор)")
                         elif self.is_local_moderator(user_id, chat_id):
@@ -428,7 +432,7 @@ class ChatBot:
     
     def has_permission(self, user_id, chat_id=None, min_level=0):
         """Проверяет, есть ли у пользователя права"""
-        # Проверяем уровень администратора (самый высокий приоритет)
+        # Проверяем уровень администратора
         admin_level = self.get_admin_level(user_id)
         if admin_level >= min_level:
             return True
@@ -1999,6 +2003,8 @@ class ChatBot:
             info += f"🛡️ Старший Модератор (уровень {admin_level})!\n"
         elif admin_level >= 1:
             info += f"🛡️ Модератор (уровень {admin_level})!\n"
+        else:
+            info += "❌ Нет прав администратора или модератора\n"
         
         # Дополнительные права
         additional_rights = []
@@ -2023,9 +2029,6 @@ class ChatBot:
             info += "\n📋 Дополнительные права:\n"
             for right in additional_rights:
                 info += f"• {right}\n"
-        
-        if admin_level == 0 and not additional_rights:
-            info += "❌ Нет прав администратора или модератора"
         
         return info
     
@@ -2073,6 +2076,23 @@ class ChatBot:
         from_id = msg['from_id']
         text = msg['text']
         message_id = msg.get('id')
+        conversation_message_id = msg.get('conversation_message_id')
+        
+        # Создаем уникальный идентификатор для сообщения, чтобы избежать дублирования
+        message_key = f"{peer_id}_{message_id}_{conversation_message_id}"
+        
+        # Проверяем, не обрабатывали ли мы уже это сообщение
+        if message_key in self.processed_messages:
+            logger.debug(f"Пропускаю дубликат сообщения {message_key}")
+            return
+        
+        # Добавляем в кэш обработанных сообщений
+        self.processed_messages.add(message_key)
+        
+        # Очищаем старые записи из кэша (если их слишком много)
+        if len(self.processed_messages) > 1000:
+            # Просто очищаем кэш, так как точное время сложно отследить
+            self.processed_messages.clear()
         
         # Проверяем, что сообщение из беседы, а не из ЛС
         if peer_id == from_id:
@@ -3401,7 +3421,7 @@ class ChatBot:
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_levelName(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
