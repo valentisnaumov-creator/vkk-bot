@@ -42,7 +42,7 @@ VK_TOKEN_CHAT = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIE
 logger.info("="*50)
 logger.info("ПРОВЕРКА ТОКЕНОВ")
 logger.info("="*50)
-logger.info(f"VK_TOKEN_ATTESTATION: {VK_TOKEN_ATTESTATION[:15]}... (длина: {len(VK_TOKEN_ATTESTATION)})")
+# logger.info(f"VK_TOKEN_ATTESTATION: {VK_TOKEN_ATTESTATION[:15]}... (длина: {len(VK_TOKEN_ATTESTATION)})")
 logger.info(f"VK_TOKEN_CHAT: {VK_TOKEN_CHAT[:15]}... (длина: {len(VK_TOKEN_CHAT)})")
 logger.info("="*50)
 
@@ -5441,7 +5441,7 @@ def main():
     
     try:
         # Создаем ботов
-        attestation_bot = AttestationBot(VK_TOKEN_ATTESTATION)
+      #   attestation_bot = AttestationBot(VK_TOKEN_ATTESTATION)
         chat_bot = ChatBot(VK_TOKEN_CHAT)
         
         # Запускаем ботов в отдельных потоках
@@ -5452,7 +5452,7 @@ def main():
         chat_thread.start()
         
         logger.info("✅ Оба бота запущены и работают параллельно")
-        logger.info(f"📌 Аттестационный бот работает с токеном: {VK_TOKEN_ATTESTATION[:20]}...")
+     #    logger.info(f"📌 Аттестационный бот работает с токеном: {VK_TOKEN_ATTESTATION[:20]}...")
         logger.info(f"📌 Чат-bot работает с токеном: {VK_TOKEN_CHAT[:20]}...")
         logger.info("🔄 Аттестационный бот отвечает только в личных сообщениях")
         logger.info("🔄 Чат-бот отвечает только в беседах")
@@ -5476,11 +5476,11 @@ logger_render = logging.getLogger('render')
 
 # Проверяем, что токены определены
 try:
-    logger_render.info(f"Токен аттестации: {VK_TOKEN_ATTESTATION[:15]}... (длина: {len(VK_TOKEN_ATTESTATION)})")
+    # logger_render.info(f"Токен аттестации: {VK_TOKEN_ATTESTATION[:15]}... (длина: {len(VK_TOKEN_ATTESTATION)})")
     logger_render.info(f"Токен чата: {VK_TOKEN_CHAT[:15]}... (длина: {len(VK_TOKEN_CHAT)})")
 except NameError as e:
     logger_render.error(f"❌ ОШИБКА: Токены не определены! {e}")
-    logger_render.error("Проверьте начало файла bot.py - там должны быть VK_TOKEN_ATTESTATION и VK_TOKEN_CHAT")
+ #    logger_render.error("Проверьте начало файла bot.py - там должны быть VK_TOKEN_ATTESTATION и VK_TOKEN_CHAT")
 
 app = Flask(__name__)
 
