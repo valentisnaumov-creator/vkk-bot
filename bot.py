@@ -2286,6 +2286,65 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
+        # Команда настройки администратора при запуске
+        elif normalized_text.startswith('/настроитьадмин'):
+            # Проверяем, была ли уже выполнена начальная настройка
+            setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
+            if len(setup_admins) >= 3:  # Максимум 3 администратора можно настроить
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Начальная настройка администраторов уже завершена!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            parts = text.split()
+            if len(parts) < 3:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Используйте: /настроитьадмин @упоминание уровень\n"
+                            "Уровни: 1-Модератор, 2-Старший Модер, 3-Админ, 4-Главный Админ, 5-Со-Владелец, 6-Владелец, 7-Основатель",
+                    random_id=get_random_id()
+                )
+                return
+            
+            target_id = extract_user_id(parts[1], self.vk)
+            if not target_id:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Неверное упоминание пользователя!",
+                    random_id=get_random_id()
+                )
+                return
+            
+            try:
+                level = int(parts[2])
+                if level < 1 or level > 7:
+                    raise ValueError
+            except ValueError:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Неверный уровень! Используйте число от 1 до 7",
+                    random_id=get_random_id()
+                )
+                return
+            
+            target_mention = get_user_mention(self.vk, target_id)
+            
+            if self.setup_admin(target_id, level):
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"✅ Пользователь {target_mention} настроен как {self.get_admin_level_name(level)} (уровень {level})!\n"
+                            f"📊 Настроено администраторов: {len(setup_admins) + 1}/3",
+                    random_id=get_random_id()
+                )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=f"ℹ️ Не удалось настроить пользователя {target_mention}!",
+                    random_id=get_random_id()
+                )
+        
         # Реакция на слово "бот"
         elif 'бот' in text.lower():
             user_mention = get_user_mention(self.vk, from_id)
