@@ -15,29 +15,11 @@ import json
 import os
 import sys
 import requests
-
+from flask import Flask
+import threading
+import time
 import sys
 import logging
-
-# Настройка логирования для Render
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger('vk_bot_debug')
-
-# Сразу пишем в логи
-logger.info("="*50)
-logger.info("БОТ ЗАПУСКАЕТСЯ...")
-logger.info("="*50)
-
-# Проверяем токены (первые 10 символов)
-logger.info(f"VK_TOKEN_ATTESTATION: {VK_TOKEN_ATTESTATION[:10]}...")
-logger.info(f"VK_TOKEN_CHAT: {VK_TOKEN_CHAT[:10]}...")
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
@@ -45,16 +27,24 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         RotatingFileHandler('bot_system.log', maxBytes=10*1024*1024, backupCount=5),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger('vk_bot_system')
 
 # ==================== КОНФИГУРАЦИЯ ====================
-# Токены VK
+# Токены VK - ВАЖНО: УБЕДИТЕСЬ ЧТО ОНИ ПРАВИЛЬНЫЕ!
 GROUP_ID = 232134257
 VK_TOKEN_ATTESTATION = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
 VK_TOKEN_CHAT = "vk1.a.jrHTMAYzNkX8ipMjgvg3QqQ8SxtbVqiMGAUwJMvUf0NobjOfEgre8ctIEDI9EfKCmcP6vr_O6Oy2CjTcE5UiIHcegjxKkjtFxoKBkiB5WJvrr5StlSb4d7ETfBdQMBNvOIEJrCaryXszeW8x8EgHLjIiHPLwpMIZH57Yl_NkBFdPD9uxDYQDXb9KWf6t8fAG-xthiCm4JOVjTOhvG8qJbA"
+
+# Проверяем токены при запуске
+logger.info("="*50)
+logger.info("ПРОВЕРКА ТОКЕНОВ")
+logger.info("="*50)
+logger.info(f"VK_TOKEN_ATTESTATION: {VK_TOKEN_ATTESTATION[:15]}... (длина: {len(VK_TOKEN_ATTESTATION)})")
+logger.info(f"VK_TOKEN_CHAT: {VK_TOKEN_CHAT[:15]}... (длина: {len(VK_TOKEN_CHAT)})")
+logger.info("="*50)
 
 # Настройки Google Таблицы для аттестации
 SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -5466,7 +5456,6 @@ def main():
         logger.info(f"📌 Чат-bot работает с токеном: {VK_TOKEN_CHAT[:20]}...")
         logger.info("🔄 Аттестационный бот отвечает только в личных сообщениях")
         logger.info("🔄 Чат-бот отвечает только в беседах")
-        logger.info("🔄 Для остановки нажмите Ctrl+C")
         
         # Держим программу активной
         try:
@@ -5480,23 +5469,18 @@ def main():
         logger.error(f"Критическая ошибка при запуске ботов: {e}")
         sys.exit(1)
 
-from flask import Flask
-import threading
-import time
-import sys
-import logging
-
-# Настройка логирования
+# ==================== FLASK ДЛЯ RENDER ====================
+# Настройка логирования для Render
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-logger = logging.getLogger('render')
+logger_render = logging.getLogger('render')
 
 # Проверяем, что токены определены
 try:
-    logger.info(f"Токен аттестации: {VK_TOKEN_ATTESTATION[:10]}...")
-    logger.info(f"Токен чата: {VK_TOKEN_CHAT[:10]}...")
+    logger_render.info(f"Токен аттестации: {VK_TOKEN_ATTESTATION[:15]}... (длина: {len(VK_TOKEN_ATTESTATION)})")
+    logger_render.info(f"Токен чата: {VK_TOKEN_CHAT[:15]}... (длина: {len(VK_TOKEN_CHAT)})")
 except NameError as e:
-    logger.error(f"❌ ОШИБКА: Токены не определены! {e}")
-    logger.error("Проверьте начало файла bot.py - там должны быть VK_TOKEN_ATTESTATION и VK_TOKEN_CHAT")
+    logger_render.error(f"❌ ОШИБКА: Токены не определены! {e}")
+    logger_render.error("Проверьте начало файла bot.py - там должны быть VK_TOKEN_ATTESTATION и VK_TOKEN_CHAT")
 
 app = Flask(__name__)
 
@@ -5507,7 +5491,8 @@ def home():
         <head><title>VK Bot</title></head>
         <body>
             <h1>✅ Бот работает!</h1>
-            <p>Flask сервер запущен</p>
+            <p>Flask сервер запущен на Render</p>
+            <p>Токены загружены</p>
         </body>
     </html>
     """
@@ -5518,30 +5503,32 @@ def health():
 
 def run_flask():
     try:
-        logger.info("🚀 Запуск Flask на порту 10000...")
-        app.run(host='0.0.0.0', port=10000, debug=False)
+        logger_render.info("🚀 Запуск Flask на порту 10000...")
+        app.run(host='0.0.0.0', port=10000, debug=False, use_reloader=False)
     except Exception as e:
-        logger.error(f"❌ Ошибка Flask: {e}")
+        logger_render.error(f"❌ Ошибка Flask: {e}")
 
 def run_bot():
     try:
-        logger.info("🤖 Запуск VK бота...")
+        logger_render.info("🤖 Запуск VK бота...")
         main()
     except Exception as e:
-        logger.error(f"❌ Ошибка бота: {e}")
+        logger_render.error(f"❌ Ошибка бота: {e}")
+        logger_render.error("Бот упал, перезапуск через 5 секунд...")
         time.sleep(5)
         run_bot()
 
 if __name__ == '__main__':
-    logger.info("="*50)
-    logger.info("ЗАПУСК БОТА НА RENDER")
-    logger.info("="*50)
+    logger_render.info("="*50)
+    logger_render.info("ЗАПУСК БОТА НА RENDER")
+    logger_render.info("="*50)
     
-    # Запускаем Flask
+    # Запускаем Flask в отдельном потоке
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    logger.info("✅ Flask поток запущен")
+    logger_render.info("✅ Flask поток запущен")
     
+    # Даем Flask время запуститься
     time.sleep(3)
     
     # Запускаем бота
