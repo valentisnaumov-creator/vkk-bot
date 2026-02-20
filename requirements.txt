@@ -1,0 +1,5 @@
+vk-api
+gspread
+oauth2client
+requests
+flask
