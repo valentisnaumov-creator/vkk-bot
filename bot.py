@@ -5457,5 +5457,30 @@ def main():
         logger.error(f"Критическая ошибка при запуске ботов: {e}")
         sys.exit(1)
 
-if __name__ == '__main__':
+from flask import Flask
+import threading
+import time
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Бот работает! 🚀"
+
+def run_flask():
+    # Запускаем Flask на порту 10000 (который требует Render)
+    app.run(host='0.0.0.0', port=10000)
+
+# Запускаем бота в отдельном потоке
+def run_bot():
+    # Небольшая задержка, чтобы Flask успел запуститься
+    time.sleep(2)
     main()
+
+if __name__ == '__main__':
+    # Запускаем Flask в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    # Запускаем бота в основном потоке
+    run_bot()
