@@ -236,7 +236,7 @@ class ChatBot:
         setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
         if not setup_admins:
             # ID создателя бота (замените на свой ID)
-            creator_id = 613142617  # ВАШ ID
+            creator_id = 744931693  # ВАШ ID
             self.set_admin_level(creator_id, 7)
             setup_admins.append(str(creator_id))
             DataManager.save_data(setup_admins, SETUP_ADMINS_FILE)
