@@ -216,8 +216,8 @@ class ChatBot:
         self.permission_warnings = {}
         
         # Кэш для обработанных сообщений (чтобы избежать дублирования)
-        self.processed_messages = set()
-        self.message_cache_time = 60  # секунд
+        self.processed_messages = {}
+        self.message_cache_time = 2  # секунд
         
         # Инициализация системы доступа к командам
         self.init_command_access()
@@ -226,18 +226,20 @@ class ChatBot:
         global ADMIN_LEVELS
         ADMIN_LEVELS = load_admin_level_names()
         
-        # Добавляем создателя бота как администратора высшего уровня при первом запуске
+        # Добавляем создателя бота как администратора высшего уровня
         self.setup_initial_admin()
         
         logger.info("Чат-бот инициализирован")
     
     def setup_initial_admin(self):
-        """Устанавливает создателя бота как администратора высшего уровня при первом запуске"""
+        """Устанавливает создателя бота как администратора высшего уровня"""
+        # Ваш ID
+        creator_id = 744931693
+        self.set_admin_level(creator_id, 7)
+        
+        # Добавляем в список настроенных администраторов, если его там нет
         setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
-        if not setup_admins:
-            # ID создателя бота (замените на свой ID)
-            creator_id = 744931693  # ВАШ ID
-            self.set_admin_level(creator_id, 7)
+        if str(creator_id) not in setup_admins:
             setup_admins.append(str(creator_id))
             DataManager.save_data(setup_admins, SETUP_ADMINS_FILE)
             logger.info(f"Установлен уровень 7 для создателя бота (ID: {creator_id})")
@@ -295,7 +297,7 @@ class ChatBot:
         logger.info("Система доступа к командам инициализирована")
     
     def setup_admin(self, user_id, level):
-        """Настройка администратора при запуске бота"""
+        """Настройка администратора"""
         if level < 1 or level > 7:
             return False
         
@@ -1990,21 +1992,21 @@ class ChatBot:
         info = f"🔍 Информация о правах {user_mention}:\n\n"
         
         if admin_level >= 7:
-            info += f"👑 Основатель (уровень {admin_level}) - самый высокий уровень!\n"
+            info += f"👑 Основатель (уровень {admin_level}) - самый высокий уровень!"
         elif admin_level >= 6:
-            info += f"👑 Владелец (уровень {admin_level})!\n"
+            info += f"👑 Владелец (уровень {admin_level})!"
         elif admin_level >= 5:
-            info += f"👑 Со-Владелец (уровень {admin_level})!\n"
+            info += f"👑 Со-Владелец (уровень {admin_level})!"
         elif admin_level >= 4:
-            info += f"👑 Главный Администратор (уровень {admin_level})!\n"
+            info += f"👑 Главный Администратор (уровень {admin_level})!"
         elif admin_level >= 3:
-            info += f"👑 Администратор (уровень {admin_level})!\n"
+            info += f"👑 Администратор (уровень {admin_level})!"
         elif admin_level >= 2:
-            info += f"🛡️ Старший Модератор (уровень {admin_level})!\n"
+            info += f"🛡️ Старший Модератор (уровень {admin_level})!"
         elif admin_level >= 1:
-            info += f"🛡️ Модератор (уровень {admin_level})!\n"
+            info += f"🛡️ Модератор (уровень {admin_level})!"
         else:
-            info += "❌ Нет прав администратора или модератора\n"
+            info += "❌ Нет прав администратора или модератора"
         
         # Дополнительные права
         additional_rights = []
@@ -2026,7 +2028,7 @@ class ChatBot:
                 additional_rights.append("🏘️ Локальный модератор этого чата")
         
         if additional_rights:
-            info += "\n📋 Дополнительные права:\n"
+            info += "\n\n📋 Дополнительные права:\n"
             for right in additional_rights:
                 info += f"• {right}\n"
         
@@ -2077,22 +2079,31 @@ class ChatBot:
         text = msg['text']
         message_id = msg.get('id')
         conversation_message_id = msg.get('conversation_message_id')
+        date = msg.get('date')
         
-        # Создаем уникальный идентификатор для сообщения, чтобы избежать дублирования
+        # Создаем уникальный идентификатор для сообщения
         message_key = f"{peer_id}_{message_id}_{conversation_message_id}"
         
-        # Проверяем, не обрабатывали ли мы уже это сообщение
+        # Проверяем, не обрабатывали ли мы уже это сообщение (в течение последних 2 секунд)
+        current_time = time.time()
         if message_key in self.processed_messages:
-            logger.debug(f"Пропускаю дубликат сообщения {message_key}")
-            return
+            last_time = self.processed_messages[message_key]
+            if current_time - last_time < 2:  # 2 секунды
+                logger.debug(f"Пропускаю дубликат сообщения {message_key}")
+                return
         
         # Добавляем в кэш обработанных сообщений
-        self.processed_messages.add(message_key)
+        self.processed_messages[message_key] = current_time
         
-        # Очищаем старые записи из кэша (если их слишком много)
+        # Очищаем старые записи из кэша
         if len(self.processed_messages) > 1000:
-            # Просто очищаем кэш, так как точное время сложно отследить
-            self.processed_messages.clear()
+            # Удаляем записи старше 10 секунд
+            expired = []
+            for key, timestamp in self.processed_messages.items():
+                if current_time - timestamp > 10:
+                    expired.append(key)
+            for key in expired:
+                del self.processed_messages[key]
         
         # Проверяем, что сообщение из беседы, а не из ЛС
         if peer_id == from_id:
@@ -3421,7 +3432,7 @@ class ChatBot:
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
                     peer_id=peer_id,
-                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_levelName(required_level)} и выше!",
+                    message=f"❌ {get_user_mention(self.vk, from_id)}, команда доступна только для {self.get_admin_level_name(required_level)} и выше!",
                     random_id=get_random_id()
                 )
                 return
@@ -3659,15 +3670,8 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        elif 'бог' in normalized_text:
-            user_mention = get_user_mention(self.vk, from_id)
-            self.vk.messages.send(
-                peer_id=peer_id,
-                message=f"{user_mention}, всё в его руках!",
-                random_id=get_random_id()
-            )
-        
-        elif 'бот' in normalized_text:
+        # Изменяем реакцию на слово "бот" - только если это отдельное слово или обращение
+        elif re.search(r'\bбот\b', normalized_text):
             user_mention = get_user_mention(self.vk, from_id)
             self.vk.messages.send(
                 peer_id=peer_id,
@@ -3675,12 +3679,29 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        elif text.startswith(('!', '/', 'І', 'і')):
+        elif re.search(r'\bбог\b', normalized_text):
+            user_mention = get_user_mention(self.vk, from_id)
             self.vk.messages.send(
                 peer_id=peer_id,
-                message="❌ Неизвестная команда. Используйте /помощь для списка команд.",
+                message=f"{user_mention}, всё в его руках!",
                 random_id=get_random_id()
             )
+        
+        elif text.startswith(('!', '/', 'І', 'і')):
+            # Проверяем, не является ли это командой /яадмин (исправляем опечатку)
+            if normalized_text.startswith('/аадмин'):
+                permissions_info = self.get_user_permissions_info(from_id, peer_id)
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message=permissions_info,
+                    random_id=get_random_id()
+                )
+            else:
+                self.vk.messages.send(
+                    peer_id=peer_id,
+                    message="❌ Неизвестная команда. Используйте /помощь для списка команд.",
+                    random_id=get_random_id()
+                )
     
     def process_callback(self, event):
         """Обрабатывает callback-события от кнопок"""
