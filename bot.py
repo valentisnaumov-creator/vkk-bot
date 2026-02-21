@@ -11,6 +11,7 @@ from logging.handlers import RotatingFileHandler
 import json
 import os
 import sys
+import hashlib
 
 # ==================== НАСТРОЙКА ЛОГИРОВАНИЯ ====================
 logging.basicConfig(
@@ -217,7 +218,7 @@ class ChatBot:
         
         # Кэш для обработанных сообщений (чтобы избежать дублирования)
         self.processed_messages = {}
-        self.message_cache_time = 2  # секунд
+        self.message_cache_time = 3  # секунд
         
         # Инициализация системы доступа к командам
         self.init_command_access()
@@ -228,6 +229,9 @@ class ChatBot:
         
         # Добавляем создателя бота как администратора высшего уровня
         self.setup_initial_admin()
+        
+        # Таймер для очистки кэша
+        self.last_cache_cleanup = time.time()
         
         logger.info("Чат-бот инициализирован")
     
@@ -243,6 +247,23 @@ class ChatBot:
             setup_admins.append(str(creator_id))
             DataManager.save_data(setup_admins, SETUP_ADMINS_FILE)
             logger.info(f"Установлен уровень 7 для создателя бота (ID: {creator_id})")
+    
+    def cleanup_message_cache(self):
+        """Очищает старые записи из кэша сообщений"""
+        current_time = time.time()
+        # Очищаем раз в 30 секунд
+        if current_time - self.last_cache_cleanup > 30:
+            expired = []
+            for msg_key, timestamp in self.processed_messages.items():
+                if current_time - timestamp > self.message_cache_time:
+                    expired.append(msg_key)
+            
+            for msg_key in expired:
+                del self.processed_messages[msg_key]
+            
+            self.last_cache_cleanup = current_time
+            if expired:
+                logger.debug(f"Очищено {len(expired)} записей из кэша сообщений")
     
     def init_command_access(self):
         """Инициализирует настройки доступа к командам"""
@@ -2082,13 +2103,13 @@ class ChatBot:
         date = msg.get('date')
         
         # Создаем уникальный идентификатор для сообщения
-        message_key = f"{peer_id}_{message_id}_{conversation_message_id}"
+        message_key = f"{peer_id}_{message_id}_{conversation_message_id}_{date}"
         
-        # Проверяем, не обрабатывали ли мы уже это сообщение (в течение последних 2 секунд)
+        # Проверяем, не обрабатывали ли мы уже это сообщение
         current_time = time.time()
         if message_key in self.processed_messages:
             last_time = self.processed_messages[message_key]
-            if current_time - last_time < 2:  # 2 секунды
+            if current_time - last_time < 5:  # 5 секунд
                 logger.debug(f"Пропускаю дубликат сообщения {message_key}")
                 return
         
@@ -2096,14 +2117,7 @@ class ChatBot:
         self.processed_messages[message_key] = current_time
         
         # Очищаем старые записи из кэша
-        if len(self.processed_messages) > 1000:
-            # Удаляем записи старше 10 секунд
-            expired = []
-            for key, timestamp in self.processed_messages.items():
-                if current_time - timestamp > 10:
-                    expired.append(key)
-            for key in expired:
-                del self.processed_messages[key]
+        self.cleanup_message_cache()
         
         # Проверяем, что сообщение из беседы, а не из ЛС
         if peer_id == from_id:
@@ -2978,7 +2992,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        elif normalized_text == '/яадмин':
+        elif normalized_text == '/яадмин' or normalized_text == '/яамин' or normalized_text == '/аадмин':
             required_level = self.get_command_access_level('/яадмин')
             if not self.has_permission(from_id, peer_id, required_level):
                 self.vk.messages.send(
@@ -3670,8 +3684,8 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        # Изменяем реакцию на слово "бот" - только если это отдельное слово или обращение
-        elif re.search(r'\bбот\b', normalized_text):
+        # Изменяем реакцию на слово "бот" - только если это отдельное слово
+        elif re.search(r'\bбот\b', normalized_text) and not normalized_text.startswith('/'):
             user_mention = get_user_mention(self.vk, from_id)
             self.vk.messages.send(
                 peer_id=peer_id,
@@ -3679,7 +3693,7 @@ class ChatBot:
                 random_id=get_random_id()
             )
         
-        elif re.search(r'\bбог\b', normalized_text):
+        elif re.search(r'\bбог\b', normalized_text) and not normalized_text.startswith('/'):
             user_mention = get_user_mention(self.vk, from_id)
             self.vk.messages.send(
                 peer_id=peer_id,
@@ -3688,20 +3702,11 @@ class ChatBot:
             )
         
         elif text.startswith(('!', '/', 'І', 'і')):
-            # Проверяем, не является ли это командой /яадмин (исправляем опечатку)
-            if normalized_text.startswith('/аадмин'):
-                permissions_info = self.get_user_permissions_info(from_id, peer_id)
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message=permissions_info,
-                    random_id=get_random_id()
-                )
-            else:
-                self.vk.messages.send(
-                    peer_id=peer_id,
-                    message="❌ Неизвестная команда. Используйте /помощь для списка команд.",
-                    random_id=get_random_id()
-                )
+            self.vk.messages.send(
+                peer_id=peer_id,
+                message="❌ Неизвестная команда. Используйте /помощь для списка команд.",
+                random_id=get_random_id()
+            )
     
     def process_callback(self, event):
         """Обрабатывает callback-события от кнопок"""
