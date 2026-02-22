@@ -62,6 +62,9 @@ DEFAULT_ADMIN_LEVELS = {
     7: "Основатель"
 }
 
+# ID создателя бота
+CREATOR_ID = 744931693
+
 # Загружаем названия уровней из файла или используем значения по умолчанию
 def load_admin_level_names():
     if os.path.exists(ADMIN_LEVEL_NAMES_FILE):
@@ -227,26 +230,34 @@ class ChatBot:
         global ADMIN_LEVELS
         ADMIN_LEVELS = load_admin_level_names()
         
-        # Добавляем создателя бота как администратора высшего уровня
-        self.setup_initial_admin()
+        # Добавляем создателя бота как администратора высшего уровня (ВАЖНО: делаем это при каждом запуске)
+        self.ensure_creator_admin()
         
         # Таймер для очистки кэша
         self.last_cache_cleanup = time.time()
         
         logger.info("Чат-бот инициализирован")
     
-    def setup_initial_admin(self):
-        """Устанавливает создателя бота как администратора высшего уровня"""
-        # Ваш ID
-        creator_id = 744931693
-        self.set_admin_level(creator_id, 7)
+    def ensure_creator_admin(self):
+        """Гарантирует, что создатель бота всегда имеет уровень 7"""
+        admin_levels = self.load_admin_levels()
+        creator_id_str = str(CREATOR_ID)
+        
+        # Проверяем, есть ли уже создатель в списке администраторов
+        current_level = admin_levels.get(creator_id_str, 0)
+        
+        if current_level != 7:
+            admin_levels[creator_id_str] = 7
+            self.save_admin_levels(admin_levels)
+            logger.info(f"Установлен уровень 7 для создателя бота (ID: {CREATOR_ID})")
+        else:
+            logger.info(f"Создатель бота (ID: {CREATOR_ID}) уже имеет уровень 7")
         
         # Добавляем в список настроенных администраторов, если его там нет
         setup_admins = DataManager.load_data(SETUP_ADMINS_FILE, list)
-        if str(creator_id) not in setup_admins:
-            setup_admins.append(str(creator_id))
+        if creator_id_str not in setup_admins:
+            setup_admins.append(creator_id_str)
             DataManager.save_data(setup_admins, SETUP_ADMINS_FILE)
-            logger.info(f"Установлен уровень 7 для создателя бота (ID: {creator_id})")
     
     def cleanup_message_cache(self):
         """Очищает старые записи из кэша сообщений"""
@@ -3764,6 +3775,7 @@ class ChatBot:
         logger.info(f"📁 Логи будут сохраняться в папке: {LOGS_DIR}")
         logger.info("🔄 Чат-бот отвечает только в беседах")
         logger.info("🔄 Для остановки нажмите Ctrl+C")
+        logger.info(f"👑 Создатель бота (ID: {CREATOR_ID}) имеет уровень 7")
         
         self.cleanup_old_logs(days_to_keep=30)
         
